@@ -2,12 +2,12 @@ import os
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 import httpx
 from dotenv import load_dotenv
 import logging
+from jinja2 import Environment, FileSystemLoader
 
 load_dotenv()
 
@@ -21,7 +21,8 @@ logger = logging.getLogger("hyderabad-traffic")
 
 # Serve the frontend static files under /static and provide root template
 app.mount("/static", StaticFiles(directory="public"), name="static")
-templates = Jinja2Templates(directory="templates")
+# Use Jinja2 Environment directly to avoid starlette cache issue on some Jinja versions
+templates_env = Environment(loader=FileSystemLoader('templates'))
 
 
 @app.on_event("startup")
@@ -33,7 +34,9 @@ async def startup_event():
 
 @app.get('/')
 async def root_index(request: Request):
-    return templates.TemplateResponse('index.html', {"request": request, "mapboxToken": MAPBOX_TOKEN})
+    tmpl = templates_env.get_template('index.html')
+    content = tmpl.render(mapboxToken=MAPBOX_TOKEN)
+    return HTMLResponse(content=content)
 
 
 @app.get("/health")
