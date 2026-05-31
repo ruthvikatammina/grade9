@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 import httpx
 from dotenv import load_dotenv
+import logging
 
 load_dotenv()
 
@@ -15,14 +16,29 @@ MAPBOX_TOKEN = os.getenv('MAPBOX_ACCESS_TOKEN')
 
 app = FastAPI(title="Hyderabad Traffic MVP")
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("hyderabad-traffic")
+
 # Serve the frontend static files under /static and provide root template
 app.mount("/static", StaticFiles(directory="public"), name="static")
 templates = Jinja2Templates(directory="templates")
 
 
+@app.on_event("startup")
+async def startup_event():
+    logger.info("Starting Hyderabad Traffic app")
+    logger.info("MAPBOX_ACCESS_TOKEN set: %s", bool(MAPBOX_TOKEN))
+    logger.info("HERE_API_KEY set: %s", bool(HERE_API_KEY))
+
+
 @app.get('/')
 async def root_index(request: Request):
     return templates.TemplateResponse('index.html', {"request": request, "mapboxToken": MAPBOX_TOKEN})
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
 
 
 @app.get('/config')
