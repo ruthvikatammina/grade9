@@ -1,0 +1,14 @@
+# Render service definition for Hyderabad Traffic app
+# Set secrets in Render dashboard (do NOT commit real keys here)
+services:
+  - type: web
+    name: hyderabad-traffic
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn server.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: MAPBOX_ACCESS_TOKEN
+        value: "<set in Render dashboard or replace before deploy>"
+      - key: HERE_API_KEY
+        value: "<set in Render dashboard or replace before deploy>"

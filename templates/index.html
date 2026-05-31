@@ -1,0 +1,93 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Hyderabad Live Traffic</title>
+  <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
+  <style>
+    body,html,#map{height:100%;margin:0;padding:0}
+    /* Small subset of styles moved inline to reduce separate files */
+    #header{position:fixed;top:0;left:0;right:0;background:#1565c0;color:#fff;padding:8px 12px;z-index:10}
+    #ui{position:fixed;top:64px;left:12px;background:#fff;padding:8px;border-radius:8px;z-index:9;max-width:360px;}
+    .stat-value{font-weight:700;color:#1976d2}
+    .incident-item{display:flex;gap:8px;padding:6px;border-radius:6px;background:#f7f7f7;margin-bottom:6px}
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="header">
+    <strong>Hyderabad Traffic Live</strong>
+    <span id="status" style="margin-left:12px">● Status: Loading...</span>
+  </div>
+
+  <div id="ui">
+    <div>
+      <button id="refresh">Refresh</button>
+      <button id="auto">Auto:ON</button>
+    </div>
+    <div style="margin-top:8px">
+      <div>Total incidents: <span id="count" class="stat-value">0</span></div>
+      <div>Traffic: <span id="level">N/A</span></div>
+    </div>
+    <hr />
+    <div id="list"></div>
+  </div>
+
+  <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
+  <script>
+    // Minimal client JS: map display and lightweight polling. Most logic kept server-side.
+    const MAPBOX_TOKEN = "{{ mapboxToken }}";
+    if (!MAPBOX_TOKEN) document.getElementById('status').innerText = 'MAPBOX token missing on server';
+
+    mapboxgl.accessToken = MAPBOX_TOKEN;
+    const map = new mapboxgl.Map({ container: 'map', style: 'mapbox://styles/mapbox/traffic-day-v2', center: [78.4867,17.3850], zoom: 12 });
+    let markers = [];
+
+    function clear() { markers.forEach(m => m.remove()); markers = []; }
+
+    function addMarker(lat, lon, text) {
+      const el = document.createElement('div'); el.style.width='12px';el.style.height='12px';el.style.background='#d32f2f';el.style.borderRadius='50%';
+      const marker = new mapboxgl.Marker(el).setLngLat([lon,lat]).setPopup(new mapboxgl.Popup().setText(text)).addTo(map);
+      markers.push(marker);
+    }
+
+    function findPoints(obj, out=[]) {
+      if (!obj || typeof obj !== 'object') return out;
+      if (Array.isArray(obj)) { obj.forEach(v=>findPoints(v,out)); return out; }
+      const keys = Object.keys(obj).reduce((a,k)=> (a[k.toLowerCase()]=obj[k],a),{});
+      const latKeys=['lat','latitude','y']; const lonKeys=['lon','lng','long','longitude','x'];
+      for (const lk of latKeys) for (const rk of lonKeys) if (lk in keys && rk in keys) {
+        const lat=Number(keys[lk]), lon=Number(keys[rk]); if (!Number.isNaN(lat)&&!Number.isNaN(lon)) out.push({lat,lon,src:obj});
+      }
+      if (typeof keys['shape']==='string'){
+        const m = keys['shape'].match(/POINT \((-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\)/i);
+        if (m) out.push({lat:Number(m[2]),lon:Number(m[1]),src:obj});
+      }
+      if (Array.isArray(keys['coordinates']) && keys['coordinates'].length>=2){ const [a,b]=keys['coordinates']; if(!Number.isNaN(a)&&!Number.isNaN(b)) out.push({lat:Number(b),lon:Number(a),src:obj}); }
+      Object.keys(obj).forEach(k=>findPoints(obj[k],out)); return out;
+    }
+
+    async function load() {
+      const b = map.getBounds(); const bbox=[b.getWest(),b.getSouth(),b.getEast(),b.getNorth()].join(',');
+      try{
+        const res = await fetch(`/api/incidents?bbox=${encodeURIComponent(bbox)}`);
+        const data = await res.json();
+        const points = findPoints(data);
+        clear(); points.forEach(p=>addMarker(p.lat,p.lon,p.src?.event||p.src?.description||'incident'));
+        document.getElementById('count').innerText = points.length;
+        const level = points.length>20? 'Heavy' : points.length>10? 'Moderate' : 'Light';
+        document.getElementById('level').innerText = level; document.getElementById('status').innerText = `● ${level} (${points.length})`;
+        const list = document.getElementById('list'); list.innerHTML=''; points.slice(0,15).forEach(p=>{ const it=document.createElement('div'); it.className='incident-item'; it.innerText=(p.src?.event||p.src?.description||'No desc'); list.appendChild(it); });
+      }catch(e){ console.error(e); document.getElementById('status').innerText='● Error loading'; }
+    }
+
+    document.getElementById('refresh').addEventListener('click', load);
+    let auto = true; let timer = setInterval(load,30000);
+    document.getElementById('auto').addEventListener('click', ()=>{ auto=!auto; document.getElementById('auto').innerText='Auto:'+(auto?'ON':'OFF'); if(auto) timer=setInterval(load,30000); else clearInterval(timer); });
+    map.on('moveend', ()=>{ if (auto) load(); });
+    // initial load
+    map.on('load', ()=> load());
+  </script>
+</body>
+</html>

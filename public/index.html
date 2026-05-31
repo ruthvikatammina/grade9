@@ -1,0 +1,62 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Hyderabad Live Traffic</title>
+  <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+  <style>body,html,#map{height:100%;margin:0;padding:0}</style>
+</head>
+<body>
+  <div id="map"></div>
+  
+  <div id="header">
+    <h1>🚗 Hyderabad Traffic Live</h1>
+    <div id="status" class="status-badge">● Status: Loading...</div>
+  </div>
+
+  <div id="ui">
+    <div id="controls">
+      <button id="loadIncidents" class="btn-primary">📍 Refresh Incidents</button>
+      <button id="toggleAutoRefresh" class="btn-secondary">🔄 Auto-refresh: ON</button>
+    </div>
+
+    <div id="stats">
+      <div class="stat-card">
+        <div class="stat-label">Total Incidents</div>
+        <div class="stat-value" id="incidentCount">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Traffic Level</div>
+        <div class="stat-value" id="trafficLevel">N/A</div>
+      </div>
+    </div>
+
+    <div id="legend">
+      <h3>Legend</h3>
+      <div class="legend-item">
+        <span class="legend-dot accident"></span> Accident
+      </div>
+      <div class="legend-item">
+        <span class="legend-dot congestion"></span> Congestion
+      </div>
+      <div class="legend-item">
+        <span class="legend-dot slowdown"></span> Slowdown
+      </div>
+      <div class="legend-item">
+        <span class="legend-dot other"></span> Other
+      </div>
+    </div>
+
+    <div id="panel">
+      <h3>Incidents</h3>
+      <div id="incidentsList"></div>
+    </div>
+  </div>
+  
+  <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
