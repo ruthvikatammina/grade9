@@ -9,6 +9,8 @@ services:
     startCommand: uvicorn server.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: MAPBOX_ACCESS_TOKEN
-        value: "<set in Render dashboard or replace before deploy>"
-      - key: HERE_API_KEY
-        value: "<set in Render dashboard or replace before deploy>"
+        value: "<set in Render dashboard>"
+      - key: GOOGLE_MAPS_API_KEY
+        value: "<set in Render dashboard>"
+      - key: PORT
+        value: "10000"
