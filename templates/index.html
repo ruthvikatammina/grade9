@@ -90,84 +90,137 @@
 
   <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
   <script>
-    const MAPBOX_TOKEN = "{{ mapboxToken }}";
-    const statusEl = document.getElementById('status');
-    const countEl = document.getElementById('count');
-    const levelEl = document.getElementById('level');
-    const listEl = document.getElementById('list');
-    const zoneSelect = document.getElementById('zoneSelect');
-    const autoBtn = document.getElementById('auto');
-    let autoRefresh = true;
-    let timer = null;
-    let markers = [];
-    let currentFilter = 'all';
-    let currentPoints = [];
+    /**
+     * HYDERABAD TRAFFIC DASHBOARD - FRONTEND
+     *
+     * Learning Objectives:
+     * - Fetching data from REST APIs using fetch()
+     * - Working with geographic coordinates (latitude, longitude)
+     * - Event listeners and async/await pattern
+     * - Manipulating the DOM (Document Object Model)
+     * - State management with variables
+     */
 
+    // Get the Mapbox token from the server (injected by Jinja2 template)
+    const MAPBOX_TOKEN = "{{ mapboxToken }}";
+
+    // Cache references to frequently-used DOM elements
+    const statusEl = document.getElementById('status');       // Status message
+    const countEl = document.getElementById('count');         // Total incidents count
+    const levelEl = document.getElementById('level');         // Traffic level badge
+    const listEl = document.getElementById('list');           // Incident list container
+    const zoneSelect = document.getElementById('zoneSelect'); // Area selector dropdown
+    const autoBtn = document.getElementById('auto');          // Auto-refresh toggle
+
+    // State variables (learning: managing application state)
+    let autoRefresh = true;     // Is auto-refresh enabled?
+    let timer = null;           // Timer ID for auto-refresh interval
+    let markers = [];           // Array of all Mapbox markers on map
+    let currentFilter = 'all';  // Current incident type filter
+    let currentPoints = [];     // Latest incidents from API
+
+    // Check if token is available
     if (!MAPBOX_TOKEN) {
       statusEl.innerText = '● MAPBOX token missing on server';
     }
 
+    // Initialize Mapbox
     mapboxgl.accessToken = MAPBOX_TOKEN;
-    const map = new mapboxgl.Map({ container: 'map', style: 'mapbox://styles/mapbox/traffic-day-v2', center: [78.4867,17.3850], zoom: 12 });
+    const map = new mapboxgl.Map({
+      container: 'map',
+      style: 'mapbox://styles/mapbox/traffic-day-v2', // Traffic-aware map style
+      center: [78.4867, 17.3850],  // Hyderabad center [longitude, latitude]
+      zoom: 12
+    });
 
+    // Define zones (learning: objects as data structures)
     const zones = {
-      hyderabad: {center:[78.4867,17.3850],zoom:12},
-      hitech: {center:[78.3794,17.4454],zoom:13},
-      banjara: {center:[78.4237,17.4175],zoom:13},
-      kukatpally: {center:[78.4202,17.4479],zoom:13},
-      gachibowli: {center:[78.4010,17.4404],zoom:13}
+      hyderabad: {center:[78.4867,17.3850], zoom:12},
+      hitech: {center:[78.3794,17.4454], zoom:13},
+      banjara: {center:[78.4237,17.4175], zoom:13},
+      kukatpally: {center:[78.4202,17.4479], zoom:13},
+      gachibowli: {center:[78.4010,17.4404], zoom:13}
     };
 
+    // Classify incident type based on text content (learning: string methods)
     function getIncidentType(text='') {
       const value = (text||'').toLowerCase();
-      if (value.includes('accident') || value.includes('crash') || value.includes('collision')) return 'accident';
-      if (value.includes('congestion') || value.includes('heavy') || value.includes('jam')) return 'congestion';
+      if (value.includes('accident') || value.includes('crash')) return 'accident';
+      if (value.includes('congestion') || value.includes('heavy')) return 'congestion';
       if (value.includes('slow') || value.includes('slowdown')) return 'slowdown';
       return 'other';
     }
 
+    // Map incident type to color (learning: objects as lookup tables)
     function getColor(type) {
       return {
-        accident: '#d32f2f',
-        congestion: '#ff9100',
-        slowdown: '#fbc02d',
-        other: '#1976d2'
+        accident: '#d32f2f',    // Red
+        congestion: '#ff9100',  // Orange
+        slowdown: '#fbc02d',    // Yellow
+        other: '#1976d2'        // Blue
       }[type] || '#1976d2';
     }
 
-    function clearMarkers() { markers.forEach(m=>m.remove()); markers=[]; }
+    // Remove all markers from map (learning: array manipulation)
+    function clearMarkers() {
+      markers.forEach(m => m.remove());
+      markers = [];
+    }
 
+    // Add a single incident marker to the map
     function addMarker(lat, lon, text, type) {
       const color = getColor(type);
       const el = document.createElement('div');
-      el.style.width='14px'; el.style.height='14px';
-      el.style.background=color; el.style.borderRadius='50%'; el.style.boxShadow=`0 0 10px ${color}77`;
-      const marker = new mapboxgl.Marker(el).setLngLat([lon,lat]).setPopup(new mapboxgl.Popup({offset:12}).setHTML(`<strong>${type.toUpperCase()}</strong><br>${text}`)).addTo(map);
+      el.style.width = '14px';
+      el.style.height = '14px';
+      el.style.background = color;
+      el.style.borderRadius = '50%';
+      el.style.boxShadow = `0 0 10px ${color}77`;
+
+      const marker = new mapboxgl.Marker(el)
+        .setLngLat([lon, lat])  // Note: Mapbox uses [lng, lat] order!
+        .setPopup(new mapboxgl.Popup({offset: 12})
+          .setHTML(`<strong>${type.toUpperCase()}</strong><br>${text}`))
+        .addTo(map);
+
       markers.push(marker);
     }
 
+    // Extract human-readable label from incident data
     function labelForPoint(point) {
       return point.src?.event || point.src?.description || point.src?.type || 'Traffic incident';
     }
 
-    function findPoints(obj,out=[]) {
+    // Extract coordinates from incident data (flexible parsing)
+    function findPoints(obj, out=[]) {
       if (!obj || typeof obj !== 'object') return out;
-      if (Array.isArray(obj)) { obj.forEach(v=>findPoints(v,out)); return out; }
-      const keys = Object.keys(obj).reduce((acc,k)=>(acc[k.toLowerCase()]=obj[k],acc),{});
-      const latKeys=['lat','latitude','y']; const lonKeys=['lon','lng','long','longitude','x'];
-      for (const lk of latKeys) for (const rk of lonKeys) if (lk in keys && rk in keys) {
-        const lat=Number(keys[lk]), lon=Number(keys[rk]); if (!Number.isNaN(lat)&&!Number.isNaN(lon)) out.push({lat,lon,src:obj});
+      if (Array.isArray(obj)) {
+        obj.forEach(v => findPoints(v, out));
+        return out;
       }
-      if (typeof keys['shape']==='string') {
-        const m = keys['shape'].match(/POINT \((-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\)/i);
-        if (m) out.push({lat:Number(m[2]),lon:Number(m[1]),src:obj});
+
+      const keys = Object.keys(obj).reduce((acc, k) => (acc[k.toLowerCase()] = obj[k], acc), {});
+      const latKeys = ['lat', 'latitude', 'y'];
+      const lonKeys = ['lon', 'lng', 'long', 'longitude', 'x'];
+
+      // Look for lat/lng pairs in object
+      for (const lk of latKeys) {
+        for (const rk of lonKeys) {
+          if (lk in keys && rk in keys) {
+            const lat = Number(keys[lk]);
+            const lon = Number(keys[rk]);
+            if (!Number.isNaN(lat) && !Number.isNaN(lon)) {
+              out.push({lat, lon, src: obj});
+            }
+          }
+        }
       }
-      if (Array.isArray(keys['coordinates']) && keys['coordinates'].length>=2) {
-        const [a,b]=keys['coordinates']; if(!Number.isNaN(a)&&!Number.isNaN(b)) out.push({lat:Number(b),lon:Number(a),src:obj});
-      }
-      Object.keys(obj).forEach(k=>findPoints(obj[k],out)); return out;
+
+      Object.keys(obj).forEach(k => findPoints(obj[k], out));
+      return out;
     }
 
+    // Calculate traffic level based on incident count
     function getTrafficLevel(count) {
       if (count > 25) return 'Severe';
       if (count > 15) return 'Heavy';
@@ -175,35 +228,64 @@
       return 'Light';
     }
 
+    // Build and render the incident list in the UI
     function buildList(points) {
       listEl.innerHTML = '';
-      const filtered = points.filter(p=> currentFilter==='all' || getIncidentType(labelForPoint(p))===currentFilter);
-      filtered.slice(0,15).forEach(p=>{
+      const filtered = points.filter(p =>
+        currentFilter === 'all' || getIncidentType(labelForPoint(p)) === currentFilter
+      );
+
+      // Show only first 15 for performance
+      filtered.slice(0, 15).forEach(p => {
         const type = getIncidentType(labelForPoint(p));
-        const item = document.createElement('div'); item.className='incident-item';
-        item.innerHTML = `<span class="incident-icon" style="background:${getColor(type)}"></span><div class="incident-text"><strong>${type.toUpperCase()}</strong><br>${labelForPoint(p)}</div>`;
-        item.addEventListener('click', ()=> map.flyTo({center:[p.lon,p.lat],zoom:15,essential:true}));
+        const item = document.createElement('div');
+        item.className = 'incident-item';
+        item.innerHTML = `
+          <span class="incident-icon" style="background:${getColor(type)}"></span>
+          <div class="incident-text">
+            <strong>${type.toUpperCase()}</strong><br>${labelForPoint(p)}
+          </div>
+        `;
+        // Click to navigate to incident location
+        item.addEventListener('click', () =>
+          map.flyTo({center: [p.lon, p.lat], zoom: 15, essential: true})
+        );
         listEl.appendChild(item);
       });
     }
 
+    // Main function: fetch incidents from server and update UI
     async function load() {
-      const b = map.getBounds(); const bbox=[b.getWest(),b.getSouth(),b.getEast(),b.getNorth()].join(',');
+      const b = map.getBounds();
+      const bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].join(',');
+
       try {
         statusEl.innerText = '● Loading incidents...';
+
+        // Fetch from our Python backend API (learning: async/await)
         const res = await fetch(`/api/incidents?bbox=${encodeURIComponent(bbox)}`);
         const data = await res.json();
+
+        // Extract coordinates from API response
         const points = findPoints(data);
         currentPoints = points;
+
+        // Clear old markers and add new ones
         clearMarkers();
-        points.forEach(p=>{
+        points.forEach(p => {
           const type = getIncidentType(labelForPoint(p));
-          if (currentFilter==='all' || currentFilter===type) addMarker(p.lat,p.lon,labelForPoint(p),type);
+          if (currentFilter === 'all' || currentFilter === type) {
+            addMarker(p.lat, p.lon, labelForPoint(p), type);
+          }
         });
+
+        // Update statistics
         countEl.innerText = points.length;
         const level = getTrafficLevel(points.length);
         levelEl.innerText = level;
         statusEl.innerText = `● ${level} traffic — ${points.length} incidents`;
+
+        // Rebuild incident list with current filter
         buildList(points);
       } catch (e) {
         console.error(e);
@@ -211,47 +293,65 @@
       }
     }
 
+    // Event: Refresh button
     document.getElementById('refresh').addEventListener('click', load);
-    autoBtn.addEventListener('click', ()=>{
+
+    // Event: Auto-refresh toggle
+    autoBtn.addEventListener('click', () => {
       autoRefresh = !autoRefresh;
       autoBtn.innerText = `Auto: ${autoRefresh ? 'ON' : 'OFF'}`;
-      if (autoRefresh) timer = setInterval(load,30000);
-      else clearInterval(timer);
+      if (autoRefresh) {
+        timer = setInterval(load, 30000); // Refresh every 30 seconds
+      } else {
+        clearInterval(timer);
+      }
     });
 
-    document.getElementById('locate').addEventListener('click', ()=>{
-      navigator.geolocation.getCurrentPosition(pos=>{
-        map.flyTo({center:[pos.coords.longitude,pos.coords.latitude],zoom:14});
-      },()=>{
-        statusEl.innerText = '● Location unavailable';
-      });
+    // Event: Location button (uses Geolocation API)
+    document.getElementById('locate').addEventListener('click', () => {
+      navigator.geolocation.getCurrentPosition(
+        pos => {
+          map.flyTo({center: [pos.coords.longitude, pos.coords.latitude], zoom: 14});
+        },
+        () => {
+          statusEl.innerText = '● Location unavailable';
+        }
+      );
     });
 
-    zoneSelect.addEventListener('change', ()=>{
+    // Event: Zone selector dropdown
+    zoneSelect.addEventListener('change', () => {
       const value = zoneSelect.value;
       if (!value || !zones[value]) return;
       const zone = zones[value];
-      map.flyTo({center:zone.center,zoom:zone.zoom});
+      map.flyTo({center: zone.center, zoom: zone.zoom});
       if (!autoRefresh) load();
     });
 
-    document.querySelectorAll('.filter').forEach(button=>{
-      button.addEventListener('click', ()=>{
-        document.querySelectorAll('.filter').forEach(btn=>btn.classList.remove('active'));
+    // Event: Incident type filters
+    document.querySelectorAll('.filter').forEach(button => {
+      button.addEventListener('click', () => {
+        // Deactivate all buttons
+        document.querySelectorAll('.filter').forEach(btn => btn.classList.remove('active'));
+        // Activate this button
         button.classList.add('active');
         currentFilter = button.dataset.type;
+        // Re-render list and markers with new filter
         buildList(currentPoints);
         clearMarkers();
-        currentPoints.forEach(p=>{
+        currentPoints.forEach(p => {
           const type = getIncidentType(labelForPoint(p));
-          if (currentFilter==='all' || currentFilter===type) addMarker(p.lat,p.lon,labelForPoint(p),type);
+          if (currentFilter === 'all' || currentFilter === type) {
+            addMarker(p.lat, p.lon, labelForPoint(p), type);
+          }
         });
       });
     });
 
-    map.on('moveend', ()=>{ if (autoRefresh) load(); });
-    timer = setInterval(load,30000);
-    map.on('load', ()=> load());
+    // Initial load and auto-refresh setup
+    map.on('moveend', () => { if (autoRefresh) load(); }); // Refresh when user pans/zooms
+    timer = setInterval(load, 30000);                       // Auto-refresh every 30 seconds
+    map.on('load', () => load());                           // Load incidents when map is ready
   </script>
 </body>
 </html>
