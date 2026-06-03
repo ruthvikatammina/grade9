@@ -251,8 +251,12 @@ async function fetchIncidents() {
   statusPillEl.textContent = 'Loading…';
   statusPillEl.className   = 'pill pill-loading';
 
+  // map.getBounds() returns null if the map hasn't loaded yet.
+  // Fall back to a bbox that covers all of Hyderabad so we always get data.
   const b    = map.getBounds();
-  const bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].join(',');
+  const bbox = b
+    ? [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].join(',')
+    : '78.35,17.30,78.62,17.50';
 
   // Abort the request if it takes more than 20 seconds
   const controller = new AbortController();
