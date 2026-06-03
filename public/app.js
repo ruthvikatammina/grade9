@@ -314,8 +314,17 @@ document.querySelectorAll('.filter-btn').forEach(btn => {
 map.on('moveend', () => { if (autoRefresh) fetchIncidents(); });
 
 // ── Boot ───────────────────────────────────────────────────
+// Start fetching as soon as the map is ready.
+// Fallback: if map 'load' doesn't fire within 4 seconds, boot anyway.
 
-map.on('load', () => {
+let booted = false;
+
+function boot() {
+  if (booted) return;
+  booted = true;
   fetchIncidents();
   startAuto();
-});
+}
+
+map.on('load', boot);
+setTimeout(boot, 4000);
