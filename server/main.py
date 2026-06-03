@@ -12,6 +12,7 @@ Learning objectives:
 - Caching to improve performance
 """
 
+import asyncio
 import logging
 from typing import Optional, List, Dict
 import hashlib
@@ -229,85 +230,67 @@ async def fetch_incidents(bbox: Optional[str] = None) -> JSONResponse:
         logger.info(f"✓ Cache HIT for bbox {bbox}. Returning {len(cached_incidents)} cached incidents")
         return JSONResponse(content={'incidents': cached_incidents, 'cached': True})
 
-    incidents_list: List[Dict] = []
+    # Filter to only routes visible in the current map viewport
+    visible_routes = [
+        r for r in HYDERABAD_ROUTES
+        if is_route_in_bbox(r[0], r[1], r[2], r[3], min_lat, min_lng, max_lat, max_lng, tolerance=BBOX_TOLERANCE)
+    ]
+    logger.info(f"  {len(visible_routes)}/{len(HYDERABAD_ROUTES)} routes in viewport")
 
-    # Query Google Maps for each route in viewport
-    async with httpx.AsyncClient(timeout=GOOGLE_MAPS_TOTAL_TIMEOUT) as client:
-        for origin_lat, origin_lng, dest_lat, dest_lng, route_name in HYDERABAD_ROUTES:
-            # Filter: only query routes within bounding box (optimization)
-            if not is_route_in_bbox(
-                origin_lat, origin_lng, dest_lat, dest_lng,
-                min_lat, min_lng, max_lat, max_lng,
-                tolerance=BBOX_TOLERANCE
-            ):
-                continue
-
-            # Calculate route center point (for display)
-            route_center_lng = (origin_lng + dest_lng) / 2
-            route_center_lat = (origin_lat + dest_lat) / 2
-
-            try:
-                # Query Google Maps Routes API (newer replacement for Directions API)
-                # Uses POST request with JSON body instead of GET with query params
-                routes_url = "https://routes.googleapis.com/directions/v2:computeRoutes"
-                headers = {
-                    "X-Goog-Api-Key": GOOGLE_MAPS_API_KEY,
-                    # FieldMask tells the API exactly which fields to return (required)
-                    "X-Goog-FieldMask": "routes.duration,routes.staticDuration",
-                    "Content-Type": "application/json",
-                }
-                body = {
-                    "origin":      {"location": {"latLng": {"latitude": origin_lat, "longitude": origin_lng}}},
-                    "destination": {"location": {"latLng": {"latitude": dest_lat,   "longitude": dest_lng}}},
-                    "travelMode": "DRIVE",
-                    # TRAFFIC_AWARE uses live traffic data
-                    "routingPreference": "TRAFFIC_AWARE",
-                }
-
-                logger.info(f"  Querying route: {route_name}")
-                resp = await client.post(routes_url, headers=headers, json=body, timeout=GOOGLE_MAPS_API_TIMEOUT)
+    async def query_route(origin_lat, origin_lng, dest_lat, dest_lng, route_name):
+        """Query one route from the Google Maps Routes API. Returns an incident dict or None."""
+        route_center_lng = (origin_lng + dest_lng) / 2
+        route_center_lat = (origin_lat + dest_lat) / 2
+        try:
+            routes_url = "https://routes.googleapis.com/directions/v2:computeRoutes"
+            req_headers = {
+                "X-Goog-Api-Key": GOOGLE_MAPS_API_KEY,
+                "X-Goog-FieldMask": "routes.duration,routes.staticDuration",
+                "Content-Type": "application/json",
+            }
+            body = {
+                "origin":      {"location": {"latLng": {"latitude": origin_lat, "longitude": origin_lng}}},
+                "destination": {"location": {"latLng": {"latitude": dest_lat,   "longitude": dest_lng}}},
+                "travelMode": "DRIVE",
+                "routingPreference": "TRAFFIC_AWARE",
+            }
+            logger.info(f"  Querying route: {route_name}")
+            async with httpx.AsyncClient(timeout=GOOGLE_MAPS_API_TIMEOUT) as c:
+                resp = await c.post(routes_url, headers=req_headers, json=body)
                 resp.raise_for_status()
                 data = resp.json()
 
-                # Routes API returns duration as "1234s" strings — strip the "s" and convert to int
-                if data.get('routes'):
-                    route_data = data['routes'][0]
-                    static_str  = route_data.get('staticDuration', '0s')   # normal travel time
-                    traffic_str = route_data.get('duration', '0s')         # time with live traffic
+            if not data.get('routes'):
+                logger.warning(f"  No routes returned for {route_name}: {data}")
+                return None
 
-                    duration           = int(static_str.rstrip('s'))
-                    duration_in_traffic = int(traffic_str.rstrip('s'))
+            route_data    = data['routes'][0]
+            duration      = int(route_data.get('staticDuration', '0s').rstrip('s'))
+            duration_traffic = int(route_data.get('duration', '0s').rstrip('s'))
+            congestion    = calculate_congestion(duration_traffic, duration)
 
-                    # Calculate congestion using utility function
-                    congestion = calculate_congestion(duration_in_traffic, duration)
+            logger.info(f"  ✓ {route_name}: {congestion['event_type']} ({congestion['delay_ratio']:.2f}x)")
+            return {
+                'event':            congestion['event_type'],
+                'description':      route_name,
+                'severity':         congestion['severity'],
+                'coordinates':      [route_center_lng, route_center_lat],
+                'lat':              route_center_lat,
+                'lng':              route_center_lng,
+                'duration_normal':  duration,
+                'duration_traffic': duration_traffic,
+                'delay_ratio':      round(congestion['delay_ratio'], 2),
+                'normal_mins':      round(duration / 60, 1),
+                'traffic_mins':     round(duration_traffic / 60, 1),
+                'delay_mins':       round((duration_traffic - duration) / 60, 1),
+            }
+        except Exception as e:
+            logger.warning(f"  Error on route {route_name}: {e}")
+            return None
 
-                    # Create incident object for frontend
-                    incident = {
-                        'event': congestion['event_type'],
-                        'description': f"{route_name}",
-                        'type': congestion['severity'],
-                        'coordinates': [route_center_lng, route_center_lat],
-                        'lat': route_center_lat,
-                        'lng': route_center_lng,
-                        'duration_normal': duration,
-                        'duration_traffic': duration_in_traffic,
-                        'delay_ratio': round(congestion['delay_ratio'], 2)
-                    }
-                    incidents_list.append(incident)
-                    logger.info(f"  ✓ {route_name}: {congestion['event_type']} ({congestion['delay_ratio']:.2f}x)")
-
-            except httpx.TimeoutException:
-                logger.warning(f"Timeout querying route {route_name}")
-                continue
-            except httpx.RequestError as e:
-                logger.warning(f"Network error on route {route_name}: {e}")
-                continue
-            except KeyError as e:
-                logger.warning(f"Unexpected API response for {route_name}: missing key {e}")
-                continue
-            except Exception as e:
-                logger.warning(f"Unexpected error on route {route_name}: {e}")
-                continue
+    # Run all route queries IN PARALLEL — much faster than one-by-one
+    results = await asyncio.gather(*[query_route(*r) for r in visible_routes])
+    incidents_list: List[Dict] = [r for r in results if r is not None]
 
     logger.info(f"Returned {len(incidents_list)} incidents from {len(HYDERABAD_ROUTES)} routes")
 

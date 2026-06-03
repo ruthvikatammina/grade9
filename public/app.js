@@ -178,21 +178,32 @@ function renderList() {
   }
 
   filtered.slice(0, 15).forEach(inc => {
-    const type  = classifyType(label(inc));
-    const color = COLORS[type];
-    const lng   = inc.lng ?? inc.lon;
+    const type    = classifyType(label(inc));
+    const color   = COLORS[type];
+    const lng     = inc.lng ?? inc.lon;
+
+    // Show travel time in minutes — much easier to understand than seconds
+    const normalMins  = inc.normal_mins  ?? Math.round((inc.duration_normal  ?? 0) / 60);
+    const trafficMins = inc.traffic_mins ?? Math.round((inc.duration_traffic ?? 0) / 60);
+    const delayMins   = inc.delay_mins   ?? (trafficMins - normalMins);
+    const delayText   = delayMins > 0 ? `+${delayMins} min delay` : 'No delay';
+    const ratio       = inc.delay_ratio ?? 1;
 
     const card = document.createElement('div');
     card.className = 'incident-card';
     card.innerHTML = `
       <div class="incident-card-dot" style="background:${color}; box-shadow:0 0 6px ${color}88;"></div>
       <div class="incident-card-body">
-        <div class="incident-card-type">${type}</div>
-        <div class="incident-card-desc">${label(inc)}</div>
+        <div class="incident-card-type" style="color:${color}">${label(inc)}</div>
+        <div class="incident-card-route">${inc.description || ''}</div>
+        <div class="incident-card-times">
+          <span class="time-badge normal">${normalMins} min normally</span>
+          <span class="time-badge traffic">${trafficMins} min now</span>
+        </div>
+        <div class="incident-card-delay" style="color:${color}">${delayText} · ${ratio}× slower</div>
       </div>
     `;
 
-    // Click → fly map to this incident
     card.addEventListener('click', () =>
       map.flyTo({ center: [lng, inc.lat], zoom: 15, essential: true })
     );
@@ -243,22 +254,29 @@ async function fetchIncidents() {
   const b    = map.getBounds();
   const bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].join(',');
 
+  // Abort the request if it takes more than 20 seconds
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+
   try {
-    const res  = await fetch(`/api/incidents?bbox=${encodeURIComponent(bbox)}`);
+    const res  = await fetch(`/api/incidents?bbox=${encodeURIComponent(bbox)}`, { signal: controller.signal });
+    clearTimeout(timeout);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-    const data = await res.json();   // { incidents: [...], cached: bool }
+    const data = await res.json();
     allIncidents = data.incidents || [];
 
     if (allIncidents.length === 0) {
-      statusPillEl.textContent = 'No data — check /api/debug';
-      statusPillEl.className   = 'pill pill-error';
+      statusPillEl.textContent = 'No routes in view';
+      statusPillEl.className   = 'pill pill-loading';
     }
 
     renderAll();
   } catch (err) {
+    clearTimeout(timeout);
     console.error(err);
-    statusPillEl.textContent = '⚠ Error';
+    const msg = err.name === 'AbortError' ? '⚠ Timeout — try refresh' : '⚠ Error loading';
+    statusPillEl.textContent = msg;
     statusPillEl.className   = 'pill pill-error';
   }
 }
