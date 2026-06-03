@@ -69,25 +69,26 @@ let mapMarkers    = [];     // Mapbox Marker objects on the map
 let autoRefresh   = true;
 let refreshTimer  = null;
 
-// ── Map setup ──────────────────────────────────────────────
+// ── Map setup (wrapped so a Mapbox failure can't kill the data fetch) ─────
 
 const token = window.MAPBOX_TOKEN;
-if (!token) {
-  statusPillEl.textContent = '⚠ Token missing';
-  statusPillEl.className = 'pill pill-error';
-  throw new Error('MAPBOX_ACCESS_TOKEN not set');
+let map = null;
+
+try {
+  if (!token) throw new Error('No token');
+  mapboxgl.accessToken = token;
+  map = new mapboxgl.Map({
+    container: 'map',
+    style: 'mapbox://styles/mapbox/dark-v11',
+    center: [78.4867, 17.3850],
+    zoom: 12,
+  });
+  map.addControl(new mapboxgl.NavigationControl(), 'bottom-right');
+  map.on('load', () => fetchIncidents()); // refresh once map is ready with real bbox
+} catch (e) {
+  console.warn('Map failed to initialise:', e);
+  // Data fetch will still run below — markers just won't appear
 }
-
-mapboxgl.accessToken = token;
-
-const map = new mapboxgl.Map({
-  container: 'map',
-  style: 'mapbox://styles/mapbox/dark-v11',  // dark base map — matches the dark sidebar
-  center: [78.4867, 17.3850],               // Hyderabad centre
-  zoom: 12,
-});
-
-map.addControl(new mapboxgl.NavigationControl(), 'bottom-right');
 
 // ── Helpers ────────────────────────────────────────────────
 
@@ -121,6 +122,7 @@ function clearMarkers() {
 }
 
 function addMarker(inc) {
+  if (!map) return; // map not available, skip marker
   const type  = classifyType(label(inc));
   const color = COLORS[type];
   const lng   = inc.lng ?? inc.lon;
@@ -251,9 +253,8 @@ async function fetchIncidents() {
   statusPillEl.textContent = 'Loading…';
   statusPillEl.className   = 'pill pill-loading';
 
-  // map.getBounds() returns null if the map hasn't loaded yet.
-  // Fall back to a bbox that covers all of Hyderabad so we always get data.
-  const b    = map.getBounds();
+  // Use map bounds if available, otherwise fall back to full Hyderabad bbox
+  const b    = map ? map.getBounds() : null;
   const bbox = b
     ? [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].join(',')
     : '78.35,17.30,78.62,17.50';
@@ -315,7 +316,7 @@ autoBtnEl.addEventListener('click', () => {
 
 document.getElementById('btn-locate').addEventListener('click', () => {
   navigator.geolocation.getCurrentPosition(
-    pos => map.flyTo({ center: [pos.coords.longitude, pos.coords.latitude], zoom: 14 }),
+    pos => map && map.flyTo({ center: [pos.coords.longitude, pos.coords.latitude], zoom: 14 }),
     ()  => { statusPillEl.textContent = '⚠ Location unavailable'; }
   );
 });
@@ -323,9 +324,9 @@ document.getElementById('btn-locate').addEventListener('click', () => {
 zoneSelectEl.addEventListener('change', () => {
   const zone = ZONES[zoneSelectEl.value];
   if (!zone) return;
-  map.flyTo({ center: zone.center, zoom: zone.zoom });
+  if (map) map.flyTo({ center: zone.center, zoom: zone.zoom });
   zoneSelectEl.value = '';
-  if (autoRefresh) fetchIncidents();
+  fetchIncidents();
 });
 
 document.querySelectorAll('.filter-btn').forEach(btn => {
@@ -339,20 +340,10 @@ document.querySelectorAll('.filter-btn').forEach(btn => {
 });
 
 // Re-fetch when the user pans or zooms to a new area
-map.on('moveend', () => { if (autoRefresh) fetchIncidents(); });
+if (map) map.on('moveend', () => { if (autoRefresh) fetchIncidents(); });
 
 // ── Boot ───────────────────────────────────────────────────
-// Start fetching as soon as the map is ready.
-// Fallback: if map 'load' doesn't fire within 4 seconds, boot anyway.
-
-let booted = false;
-
-function boot() {
-  if (booted) return;
-  booted = true;
-  fetchIncidents();
-  startAuto();
-}
-
-map.on('load', boot);
-setTimeout(boot, 4000);
+// Fetch data immediately — does NOT wait for the map to load.
+// This ensures data always loads even if Mapbox CDN is slow.
+fetchIncidents();
+startAuto();
