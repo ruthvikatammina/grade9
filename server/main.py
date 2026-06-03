@@ -101,30 +101,33 @@ async def debug():
         return result
 
     try:
-        url = (
-            "https://maps.googleapis.com/maps/api/directions/json"
-            "?origin=17.3850,78.4867"
-            "&destination=17.4454,78.3794"
-            "&departure_time=now"
-            "&traffic_model=best_guess"
-            f"&key={GOOGLE_MAPS_API_KEY}"
-        )
+        routes_url = "https://routes.googleapis.com/directions/v2:computeRoutes"
+        headers = {
+            "X-Goog-Api-Key": GOOGLE_MAPS_API_KEY,
+            "X-Goog-FieldMask": "routes.duration,routes.staticDuration",
+            "Content-Type": "application/json",
+        }
+        body = {
+            "origin":      {"location": {"latLng": {"latitude": 17.3850, "longitude": 78.4867}}},
+            "destination": {"location": {"latLng": {"latitude": 17.4454, "longitude": 78.3794}}},
+            "travelMode": "DRIVE",
+            "routingPreference": "TRAFFIC_AWARE",
+        }
         async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(url)
+            resp = await client.post(routes_url, headers=headers, json=body)
             data = resp.json()
 
-        result["google_maps_status"] = data.get("status")
+        result["google_maps_status"] = "OK" if data.get("routes") else "ERROR"
 
-        if data.get("status") == "OK" and data.get("routes"):
-            leg = data["routes"][0]["legs"][0]
-            result["duration_normal_seconds"]  = leg.get("duration", {}).get("value")
-            result["duration_traffic_seconds"] = leg.get("duration_in_traffic", {}).get("value")
-            result["congestion"] = calculate_congestion(
-                result["duration_traffic_seconds"] or 0,
-                result["duration_normal_seconds"] or 1,
-            )
+        if data.get("routes"):
+            route = data["routes"][0]
+            duration_normal  = int(route.get("staticDuration", "0s").rstrip("s"))
+            duration_traffic = int(route.get("duration", "0s").rstrip("s"))
+            result["duration_normal_seconds"]  = duration_normal
+            result["duration_traffic_seconds"] = duration_traffic
+            result["congestion"] = calculate_congestion(duration_traffic, duration_normal)
         else:
-            result["error"] = data.get("error_message") or f"Status: {data.get('status')}"
+            result["error"] = str(data)
             result["raw_response"] = data
 
     except Exception as e:
@@ -244,28 +247,36 @@ async def fetch_incidents(bbox: Optional[str] = None) -> JSONResponse:
             route_center_lat = (origin_lat + dest_lat) / 2
 
             try:
-                # Query Google Maps Directions API
-                url = (
-                    f"https://maps.googleapis.com/maps/api/directions/json?"
-                    f"origin={origin_lat},{origin_lng}"
-                    f"&destination={dest_lat},{dest_lng}"
-                    f"&departure_time=now"
-                    f"&traffic_model=best_guess"
-                    f"&key={GOOGLE_MAPS_API_KEY}"
-                )
+                # Query Google Maps Routes API (newer replacement for Directions API)
+                # Uses POST request with JSON body instead of GET with query params
+                routes_url = "https://routes.googleapis.com/directions/v2:computeRoutes"
+                headers = {
+                    "X-Goog-Api-Key": GOOGLE_MAPS_API_KEY,
+                    # FieldMask tells the API exactly which fields to return (required)
+                    "X-Goog-FieldMask": "routes.duration,routes.staticDuration",
+                    "Content-Type": "application/json",
+                }
+                body = {
+                    "origin":      {"location": {"latLng": {"latitude": origin_lat, "longitude": origin_lng}}},
+                    "destination": {"location": {"latLng": {"latitude": dest_lat,   "longitude": dest_lng}}},
+                    "travelMode": "DRIVE",
+                    # TRAFFIC_AWARE uses live traffic data
+                    "routingPreference": "TRAFFIC_AWARE",
+                }
 
                 logger.info(f"  Querying route: {route_name}")
-                resp = await client.get(url, timeout=GOOGLE_MAPS_API_TIMEOUT)
+                resp = await client.post(routes_url, headers=headers, json=body, timeout=GOOGLE_MAPS_API_TIMEOUT)
                 resp.raise_for_status()
                 data = resp.json()
 
-                # Parse response and extract travel time data
-                if data.get('status') == 'OK' and data.get('routes'):
-                    route = data['routes'][0]
-                    leg = route['legs'][0]
+                # Routes API returns duration as "1234s" strings — strip the "s" and convert to int
+                if data.get('routes'):
+                    route_data = data['routes'][0]
+                    static_str  = route_data.get('staticDuration', '0s')   # normal travel time
+                    traffic_str = route_data.get('duration', '0s')         # time with live traffic
 
-                    duration = leg.get('duration', {}).get('value', 0)
-                    duration_in_traffic = leg.get('duration_in_traffic', {}).get('value', 0)
+                    duration           = int(static_str.rstrip('s'))
+                    duration_in_traffic = int(traffic_str.rstrip('s'))
 
                     # Calculate congestion using utility function
                     congestion = calculate_congestion(duration_in_traffic, duration)
@@ -273,7 +284,7 @@ async def fetch_incidents(bbox: Optional[str] = None) -> JSONResponse:
                     # Create incident object for frontend
                     incident = {
                         'event': congestion['event_type'],
-                        'description': f"{route_name}: {leg.get('end_address', 'Route')}",
+                        'description': f"{route_name}",
                         'type': congestion['severity'],
                         'coordinates': [route_center_lng, route_center_lat],
                         'lat': route_center_lat,
