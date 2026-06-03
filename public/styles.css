@@ -346,8 +346,21 @@ body, html {
   font-size: 10px;
   color: #334155;
   text-align: center;
-  padding: 6px 16px 12px;
+  padding: 6px 16px 2px;
   flex-shrink: 0;
+}
+
+#made-by {
+  font-size: 11px;
+  color: #334155;
+  text-align: center;
+  padding: 4px 16px 12px;
+  flex-shrink: 0;
+}
+
+#made-by strong {
+  color: #475569;
+  font-weight: 600;
 }
 
 /* ── Scrollbar ───────────────────────────────────────────── */
