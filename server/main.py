@@ -131,6 +131,8 @@ async def fetch_incidents(bbox: Optional[str] = None) -> JSONResponse:
     - Data transformation and validation
     - Logging for debugging
     """
+    logger.info(f"→ /api/incidents called | bbox={bbox}")
+
     # Validate: bbox parameter provided
     if not bbox:
         logger.warning("API call missing bbox parameter")
@@ -194,7 +196,7 @@ async def fetch_incidents(bbox: Optional[str] = None) -> JSONResponse:
                     f"&key={GOOGLE_MAPS_API_KEY}"
                 )
 
-                logger.debug(f"Querying route: {route_name}")
+                logger.info(f"  Querying route: {route_name}")
                 resp = await client.get(url, timeout=GOOGLE_MAPS_API_TIMEOUT)
                 resp.raise_for_status()
                 data = resp.json()
@@ -223,7 +225,7 @@ async def fetch_incidents(bbox: Optional[str] = None) -> JSONResponse:
                         'delay_ratio': round(congestion['delay_ratio'], 2)
                     }
                     incidents_list.append(incident)
-                    logger.debug(f"✓ {route_name}: {congestion['event_type']} (ratio: {congestion['delay_ratio']:.2f}x)")
+                    logger.info(f"  ✓ {route_name}: {congestion['event_type']} ({congestion['delay_ratio']:.2f}x)")
 
             except httpx.TimeoutException:
                 logger.warning(f"Timeout querying route {route_name}")
