@@ -1,357 +1,112 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Hyderabad Live Traffic</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Hyderabad Traffic Live</title>
+
+  <!-- Mapbox map library CSS (styles the map itself) -->
   <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
-  <style>
-    body,html,#map{height:100%;margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;}
-    #header{position:fixed;top:0;left:0;right:0;background:#1565c0;color:#fff;padding:10px 16px;z-index:10;display:flex;align-items:center;justify-content:space-between;gap:12px;}
-    #header strong{font-size:16px;letter-spacing:0.3px;}
-    #status{font-size:13px;opacity:0.95;}
-    #ui{position:fixed;top:64px;left:12px;background:#fff;padding:12px;border-radius:14px;z-index:9;max-width:380px;width:calc(100vw - 24px);box-shadow:0 16px 40px rgba(0,0,0,0.16);}
-    .controls{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;}
-    button, select{border:none;border-radius:8px;padding:10px 12px;font-size:13px;cursor:pointer;transition:transform 0.15s ease,box-shadow 0.15s ease;}
-    button:hover, select:hover{transform:translateY(-1px);box-shadow:0 6px 14px rgba(0,0,0,0.12);}
-    button:active,select:active{transform:none;}
-    button.primary{background:#1976d2;color:#fff;}
-    button.secondary{background:#f3f6fb;color:#1f2a44;}
-    button.filter.active{background:#1976d2;color:#fff;}
-    .stats{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;}
-    .stat-card{background:#f5f8ff;padding:10px;border-radius:12px;border:1px solid #e7eef9;}
-    .stat-label{font-size:11px;color:#5f718d;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px;}
-    .stat-value{font-size:20px;font-weight:700;color:#1d428a;}
-    .legend{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;}
-    .legend-item{display:flex;align-items:center;gap:6px;font-size:12px;color:#333;}
-    .legend-dot{width:12px;height:12px;border-radius:50%;display:inline-block;}
-    .legend-dot.accident{background:#d32f2f;}
-    .legend-dot.congestion{background:#ff9100;}
-    .legend-dot.slowdown{background:#fbc02d;}
-    .legend-dot.other{background:#1976d2;}
-    #list{max-height:340px;overflow:auto;padding-right:4px;}
-    .incident-item{display:flex;gap:10px;padding:10px;border-radius:12px;background:#fafbff;margin-bottom:8px;}
-    .incident-icon{width:12px;height:12px;border-radius:50%;margin-top:4px;flex-shrink:0;}
-    .incident-text{font-size:13px;line-height:1.4;color:#1f2a44;}
-    .footer{font-size:12px;color:#5f718d;margin-top:10px;}
-    .hidden{display:none;}
-  </style>
+
+  <!-- Our custom styles -->
+  <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
+
+  <!-- The map fills the whole screen (see styles.css #map) -->
   <div id="map"></div>
-  <div id="header">
-    <strong>Hyderabad Traffic Live</strong>
-    <span id="status">● Loading...</span>
-  </div>
 
-  <div id="ui">
-    <div class="controls">
-      <button id="refresh" class="primary">Refresh</button>
-      <button id="auto" class="secondary">Auto: ON</button>
-      <button id="locate" class="secondary">My location</button>
-      <select id="zoneSelect" class="secondary">
-        <option value="">Select area</option>
-        <option value="hyderabad">Hyderabad Center</option>
-        <option value="hitech">HITEC City</option>
-        <option value="banjara">Banjara Hills</option>
-        <option value="kukatpally">Kukatpally</option>
-        <option value="gachibowli">Gachibowli</option>
-      </select>
-    </div>
-
-    <div class="stats">
-      <div class="stat-card">
-        <div class="stat-label">Total incidents</div>
-        <div id="count" class="stat-value">0</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Traffic level</div>
-        <div id="level" class="stat-value">N/A</div>
+  <!-- Top header bar -->
+  <header id="header">
+    <div id="header-left">
+      <span id="logo">🚦</span>
+      <div>
+        <div id="title">Hyderabad Traffic</div>
+        <div id="subtitle">Live road conditions</div>
       </div>
     </div>
+    <div id="status">Loading…</div>
+  </header>
 
-    <div class="legend">
-      <div class="legend-item"><span class="legend-dot accident"></span>Accident</div>
-      <div class="legend-item"><span class="legend-dot congestion"></span>Congestion</div>
-      <div class="legend-item"><span class="legend-dot slowdown"></span>Slowdown</div>
-      <div class="legend-item"><span class="legend-dot other"></span>Other</div>
-    </div>
+  <!-- Left sidebar panel -->
+  <aside id="sidebar">
 
-    <div class="controls" style="grid-template-columns:repeat(4,1fr);">
-      <button class="filter active" data-type="all">All</button>
-      <button class="filter" data-type="accident">Accidents</button>
-      <button class="filter" data-type="congestion">Congestion</button>
-      <button class="filter" data-type="slowdown">Slowdowns</button>
-    </div>
+    <!-- ── SECTION 1: Controls ── -->
+    <section class="section">
+      <div class="row">
+        <button id="btn-refresh" class="btn primary">↻ Refresh</button>
+        <button id="btn-auto" class="btn secondary active">⏱ Auto: ON</button>
+      </div>
+      <div class="row" style="margin-top: 8px;">
+        <button id="btn-locate" class="btn secondary">📍 My location</button>
+        <select id="zone-select" class="btn secondary">
+          <option value="">Jump to area…</option>
+          <option value="hyderabad">Hyderabad Center</option>
+          <option value="hitech">HITEC City</option>
+          <option value="banjara">Banjara Hills</option>
+          <option value="kukatpally">Kukatpally</option>
+          <option value="gachibowli">Gachibowli</option>
+        </select>
+      </div>
+    </section>
 
-    <div id="list"></div>
-    <div class="footer">Showing up to 15 incidents in the current view.</div>
-  </div>
+    <!-- ── SECTION 2: Stats ── -->
+    <section class="section">
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">Incidents</div>
+          <div id="stat-count" class="stat-value">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Traffic now</div>
+          <div id="stat-level" class="stat-value">—</div>
+        </div>
+      </div>
+    </section>
 
+    <!-- ── SECTION 3: Filter by type ── -->
+    <section class="section">
+      <div class="section-title">Filter</div>
+      <div class="filter-row">
+        <button class="filter-btn active" data-type="all">All</button>
+        <button class="filter-btn" data-type="congestion">Congestion</button>
+        <button class="filter-btn" data-type="slowdown">Slowdown</button>
+        <button class="filter-btn" data-type="accident">Accident</button>
+      </div>
+    </section>
+
+    <!-- ── SECTION 4: Colour legend ── -->
+    <section class="section">
+      <div class="section-title">Legend</div>
+      <div class="legend">
+        <div class="legend-item"><span class="dot accident"></span> Accident</div>
+        <div class="legend-item"><span class="dot congestion"></span> Congestion</div>
+        <div class="legend-item"><span class="dot slowdown"></span> Slowdown</div>
+        <div class="legend-item"><span class="dot other"></span> Light traffic</div>
+      </div>
+    </section>
+
+    <!-- ── SECTION 5: Incident list ── -->
+    <section class="section" style="flex: 1; overflow: hidden; display: flex; flex-direction: column;">
+      <div class="section-title">Incidents <span id="list-count" style="font-weight:400; color:#888;"></span></div>
+      <div id="incident-list"></div>
+      <div id="list-footer"></div>
+    </section>
+
+    <div id="last-updated"></div>
+  </aside>
+
+  <!-- Mapbox JS library -->
   <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
-  <script>
-    /**
-     * HYDERABAD TRAFFIC DASHBOARD - FRONTEND
-     *
-     * Learning Objectives:
-     * - Fetching data from REST APIs using fetch()
-     * - Working with geographic coordinates (latitude, longitude)
-     * - Event listeners and async/await pattern
-     * - Manipulating the DOM (Document Object Model)
-     * - State management with variables
-     */
 
-    // Get the Mapbox token from the server (injected by Jinja2 template)
-    const MAPBOX_TOKEN = "{{ mapboxToken }}";
+  <!--
+    Pass the Mapbox token from the Python server into the page.
+    The {{ mapboxToken }} is replaced by Jinja2 (Python's template engine).
+    We store it in window.MAPBOX_TOKEN so app.js can read it.
+  -->
+  <script>window.MAPBOX_TOKEN = "{{ mapboxToken }}";</script>
 
-    // Cache references to frequently-used DOM elements
-    const statusEl = document.getElementById('status');       // Status message
-    const countEl = document.getElementById('count');         // Total incidents count
-    const levelEl = document.getElementById('level');         // Traffic level badge
-    const listEl = document.getElementById('list');           // Incident list container
-    const zoneSelect = document.getElementById('zoneSelect'); // Area selector dropdown
-    const autoBtn = document.getElementById('auto');          // Auto-refresh toggle
-
-    // State variables (learning: managing application state)
-    let autoRefresh = true;     // Is auto-refresh enabled?
-    let timer = null;           // Timer ID for auto-refresh interval
-    let markers = [];           // Array of all Mapbox markers on map
-    let currentFilter = 'all';  // Current incident type filter
-    let currentPoints = [];     // Latest incidents from API
-
-    // Check if token is available
-    if (!MAPBOX_TOKEN) {
-      statusEl.innerText = '● MAPBOX token missing on server';
-    }
-
-    // Initialize Mapbox
-    mapboxgl.accessToken = MAPBOX_TOKEN;
-    const map = new mapboxgl.Map({
-      container: 'map',
-      style: 'mapbox://styles/mapbox/traffic-day-v2', // Traffic-aware map style
-      center: [78.4867, 17.3850],  // Hyderabad center [longitude, latitude]
-      zoom: 12
-    });
-
-    // Define zones (learning: objects as data structures)
-    const zones = {
-      hyderabad: {center:[78.4867,17.3850], zoom:12},
-      hitech: {center:[78.3794,17.4454], zoom:13},
-      banjara: {center:[78.4237,17.4175], zoom:13},
-      kukatpally: {center:[78.4202,17.4479], zoom:13},
-      gachibowli: {center:[78.4010,17.4404], zoom:13}
-    };
-
-    // Classify incident type based on text content (learning: string methods)
-    function getIncidentType(text='') {
-      const value = (text||'').toLowerCase();
-      if (value.includes('accident') || value.includes('crash')) return 'accident';
-      if (value.includes('congestion') || value.includes('heavy')) return 'congestion';
-      if (value.includes('slow') || value.includes('slowdown')) return 'slowdown';
-      return 'other';
-    }
-
-    // Map incident type to color (learning: objects as lookup tables)
-    function getColor(type) {
-      return {
-        accident: '#d32f2f',    // Red
-        congestion: '#ff9100',  // Orange
-        slowdown: '#fbc02d',    // Yellow
-        other: '#1976d2'        // Blue
-      }[type] || '#1976d2';
-    }
-
-    // Remove all markers from map (learning: array manipulation)
-    function clearMarkers() {
-      markers.forEach(m => m.remove());
-      markers = [];
-    }
-
-    // Add a single incident marker to the map
-    function addMarker(lat, lon, text, type) {
-      const color = getColor(type);
-      const el = document.createElement('div');
-      el.style.width = '14px';
-      el.style.height = '14px';
-      el.style.background = color;
-      el.style.borderRadius = '50%';
-      el.style.boxShadow = `0 0 10px ${color}77`;
-
-      const marker = new mapboxgl.Marker(el)
-        .setLngLat([lon, lat])  // Note: Mapbox uses [lng, lat] order!
-        .setPopup(new mapboxgl.Popup({offset: 12})
-          .setHTML(`<strong>${type.toUpperCase()}</strong><br>${text}`))
-        .addTo(map);
-
-      markers.push(marker);
-    }
-
-    // Extract human-readable label from incident data
-    function labelForPoint(point) {
-      return point.src?.event || point.src?.description || point.src?.type || 'Traffic incident';
-    }
-
-    // Extract coordinates from incident data (flexible parsing)
-    function findPoints(obj, out=[]) {
-      if (!obj || typeof obj !== 'object') return out;
-      if (Array.isArray(obj)) {
-        obj.forEach(v => findPoints(v, out));
-        return out;
-      }
-
-      const keys = Object.keys(obj).reduce((acc, k) => (acc[k.toLowerCase()] = obj[k], acc), {});
-      const latKeys = ['lat', 'latitude', 'y'];
-      const lonKeys = ['lon', 'lng', 'long', 'longitude', 'x'];
-
-      // Look for lat/lng pairs in object
-      for (const lk of latKeys) {
-        for (const rk of lonKeys) {
-          if (lk in keys && rk in keys) {
-            const lat = Number(keys[lk]);
-            const lon = Number(keys[rk]);
-            if (!Number.isNaN(lat) && !Number.isNaN(lon)) {
-              out.push({lat, lon, src: obj});
-            }
-          }
-        }
-      }
-
-      Object.keys(obj).forEach(k => findPoints(obj[k], out));
-      return out;
-    }
-
-    // Calculate traffic level based on incident count
-    function getTrafficLevel(count) {
-      if (count > 25) return 'Severe';
-      if (count > 15) return 'Heavy';
-      if (count > 8) return 'Moderate';
-      return 'Light';
-    }
-
-    // Build and render the incident list in the UI
-    function buildList(points) {
-      listEl.innerHTML = '';
-      const filtered = points.filter(p =>
-        currentFilter === 'all' || getIncidentType(labelForPoint(p)) === currentFilter
-      );
-
-      // Show only first 15 for performance
-      filtered.slice(0, 15).forEach(p => {
-        const type = getIncidentType(labelForPoint(p));
-        const item = document.createElement('div');
-        item.className = 'incident-item';
-        item.innerHTML = `
-          <span class="incident-icon" style="background:${getColor(type)}"></span>
-          <div class="incident-text">
-            <strong>${type.toUpperCase()}</strong><br>${labelForPoint(p)}
-          </div>
-        `;
-        // Click to navigate to incident location
-        item.addEventListener('click', () =>
-          map.flyTo({center: [p.lon, p.lat], zoom: 15, essential: true})
-        );
-        listEl.appendChild(item);
-      });
-    }
-
-    // Main function: fetch incidents from server and update UI
-    async function load() {
-      const b = map.getBounds();
-      const bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].join(',');
-
-      try {
-        statusEl.innerText = '● Loading incidents...';
-
-        // Fetch from our Python backend API (learning: async/await)
-        const res = await fetch(`/api/incidents?bbox=${encodeURIComponent(bbox)}`);
-        const data = await res.json();
-
-        // Extract coordinates from API response
-        const points = findPoints(data);
-        currentPoints = points;
-
-        // Clear old markers and add new ones
-        clearMarkers();
-        points.forEach(p => {
-          const type = getIncidentType(labelForPoint(p));
-          if (currentFilter === 'all' || currentFilter === type) {
-            addMarker(p.lat, p.lon, labelForPoint(p), type);
-          }
-        });
-
-        // Update statistics
-        countEl.innerText = points.length;
-        const level = getTrafficLevel(points.length);
-        levelEl.innerText = level;
-        statusEl.innerText = `● ${level} traffic — ${points.length} incidents`;
-
-        // Rebuild incident list with current filter
-        buildList(points);
-      } catch (e) {
-        console.error(e);
-        statusEl.innerText = '● Error loading incidents';
-      }
-    }
-
-    // Event: Refresh button
-    document.getElementById('refresh').addEventListener('click', load);
-
-    // Event: Auto-refresh toggle
-    autoBtn.addEventListener('click', () => {
-      autoRefresh = !autoRefresh;
-      autoBtn.innerText = `Auto: ${autoRefresh ? 'ON' : 'OFF'}`;
-      if (autoRefresh) {
-        timer = setInterval(load, 30000); // Refresh every 30 seconds
-      } else {
-        clearInterval(timer);
-      }
-    });
-
-    // Event: Location button (uses Geolocation API)
-    document.getElementById('locate').addEventListener('click', () => {
-      navigator.geolocation.getCurrentPosition(
-        pos => {
-          map.flyTo({center: [pos.coords.longitude, pos.coords.latitude], zoom: 14});
-        },
-        () => {
-          statusEl.innerText = '● Location unavailable';
-        }
-      );
-    });
-
-    // Event: Zone selector dropdown
-    zoneSelect.addEventListener('change', () => {
-      const value = zoneSelect.value;
-      if (!value || !zones[value]) return;
-      const zone = zones[value];
-      map.flyTo({center: zone.center, zoom: zone.zoom});
-      if (!autoRefresh) load();
-    });
-
-    // Event: Incident type filters
-    document.querySelectorAll('.filter').forEach(button => {
-      button.addEventListener('click', () => {
-        // Deactivate all buttons
-        document.querySelectorAll('.filter').forEach(btn => btn.classList.remove('active'));
-        // Activate this button
-        button.classList.add('active');
-        currentFilter = button.dataset.type;
-        // Re-render list and markers with new filter
-        buildList(currentPoints);
-        clearMarkers();
-        currentPoints.forEach(p => {
-          const type = getIncidentType(labelForPoint(p));
-          if (currentFilter === 'all' || currentFilter === type) {
-            addMarker(p.lat, p.lon, labelForPoint(p), type);
-          }
-        });
-      });
-    });
-
-    // Initial load and auto-refresh setup
-    map.on('moveend', () => { if (autoRefresh) load(); }); // Refresh when user pans/zooms
-    timer = setInterval(load, 30000);                       // Auto-refresh every 30 seconds
-    map.on('load', () => load());                           // Load incidents when map is ready
-  </script>
+  <!-- Our app logic (see public/app.js) -->
+  <script src="/static/app.js"></script>
 </body>
 </html>
