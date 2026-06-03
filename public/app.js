@@ -249,6 +249,12 @@ async function fetchIncidents() {
 
     const data = await res.json();   // { incidents: [...], cached: bool }
     allIncidents = data.incidents || [];
+
+    if (allIncidents.length === 0) {
+      statusPillEl.textContent = 'No data — check /api/debug';
+      statusPillEl.className   = 'pill pill-error';
+    }
+
     renderAll();
   } catch (err) {
     console.error(err);

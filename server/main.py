@@ -76,6 +76,64 @@ async def health():
 
 
 # ============================================================================
+# ROUTE: Debug — test Google Maps API directly
+# ============================================================================
+
+@app.get("/api/debug")
+async def debug():
+    """
+    Test the Google Maps API with one hardcoded route and return raw results.
+    Visit /api/debug in the browser to diagnose data issues.
+    """
+    result = {
+        "google_maps_key_set": bool(GOOGLE_MAPS_API_KEY),
+        "mapbox_token_set": bool(MAPBOX_TOKEN),
+        "test_route": "Hyderabad Center → HITEC City",
+        "google_maps_status": None,
+        "duration_normal_seconds": None,
+        "duration_traffic_seconds": None,
+        "congestion": None,
+        "error": None,
+    }
+
+    if not GOOGLE_MAPS_API_KEY:
+        result["error"] = "GOOGLE_MAPS_API_KEY is not set"
+        return result
+
+    try:
+        url = (
+            "https://maps.googleapis.com/maps/api/directions/json"
+            "?origin=17.3850,78.4867"
+            "&destination=17.4454,78.3794"
+            "&departure_time=now"
+            "&traffic_model=best_guess"
+            f"&key={GOOGLE_MAPS_API_KEY}"
+        )
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(url)
+            data = resp.json()
+
+        result["google_maps_status"] = data.get("status")
+
+        if data.get("status") == "OK" and data.get("routes"):
+            leg = data["routes"][0]["legs"][0]
+            result["duration_normal_seconds"]  = leg.get("duration", {}).get("value")
+            result["duration_traffic_seconds"] = leg.get("duration_in_traffic", {}).get("value")
+            result["congestion"] = calculate_congestion(
+                result["duration_traffic_seconds"] or 0,
+                result["duration_normal_seconds"] or 1,
+            )
+        else:
+            result["error"] = data.get("error_message") or f"Status: {data.get('status')}"
+            result["raw_response"] = data
+
+    except Exception as e:
+        result["error"] = str(e)
+
+    return result
+
+
+# ============================================================================
 # ROUTE: Configuration
 # ============================================================================
 
