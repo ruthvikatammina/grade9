@@ -2,108 +2,82 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Hyderabad Traffic Live</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>CyberRoute — Hyderabad IT Corridor</title>
   <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/styles.css" />
+  <link rel="stylesheet" href="/static/styles.css?v=11" />
 </head>
 <body>
 
   <div id="map"></div>
 
-  <!-- ── Sidebar ── -->
   <aside id="sidebar">
 
-    <!-- Brand header -->
     <div id="brand">
-      <div id="brand-icon">🚦</div>
+      <span id="brand-logo">🛣️</span>
       <div id="brand-text">
-        <div id="brand-name">Hyderabad Traffic</div>
-        <div id="brand-sub">Live road conditions</div>
+        <div id="brand-name">CyberRoute</div>
+        <div id="brand-sub">Cyberabad commute · Live</div>
       </div>
-      <div id="status-pill" class="pill pill-loading">Loading…</div>
+      <div id="status-pill" class="pill pill-loading">…</div>
     </div>
 
-    <!-- Zone jump -->
-    <div class="sidebar-section">
-      <select id="zone-select" class="zone-select">
-        <option value="">📍 Jump to area…</option>
-        <option value="hyderabad">Hyderabad Center</option>
-        <option value="hitech">HITEC City</option>
-        <option value="banjara">Banjara Hills</option>
-        <option value="kukatpally">Kukatpally</option>
-        <option value="gachibowli">Gachibowli</option>
+    <div id="go-banner" class="banner banner-loading">Checking traffic…</div>
+
+    <div id="dir-bar">
+      <button class="dir-btn dir-btn-active" data-dir="all">All</button>
+      <button class="dir-btn" data-dir="to">→ Inbound</button>
+      <button class="dir-btn" data-dir="from">← Outbound</button>
+    </div>
+
+    <!-- Trip planner — hero action -->
+    <div class="section planner-section" id="trip-section">
+      <select id="trip-select" class="select">
+        <option value="">Choose your route…</option>
       </select>
-    </div>
-
-    <!-- Stats row -->
-    <div class="sidebar-section stats-row">
-      <div class="stat-card">
-        <div class="stat-icon">📊</div>
-        <div class="stat-body">
-          <div id="stat-count" class="stat-value">—</div>
-          <div class="stat-label">Incidents</div>
-        </div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-icon">🚗</div>
-        <div class="stat-body">
-          <div id="stat-level" class="stat-value">—</div>
-          <div class="stat-label">Traffic now</div>
-        </div>
+      <div id="trip-result" class="trip-result hidden"></div>
+      <div id="leave-by-row" class="leave-by-row hidden">
+        <label class="leave-by-label">Need to arrive by</label>
+        <input type="time" id="arrive-by-input" class="time-input" />
+        <div id="leave-by-result" class="leave-by-result"></div>
       </div>
     </div>
 
-    <!-- Filter row -->
-    <div class="sidebar-section">
-      <div class="section-label">Filter by type</div>
-      <div class="filter-row">
-        <button class="filter-btn active" data-type="all">All</button>
-        <button class="filter-btn" data-type="congestion">Congestion</button>
-        <button class="filter-btn" data-type="slowdown">Slowdown</button>
-        <button class="filter-btn" data-type="accident">Accident</button>
+    <!-- At-a-glance counts -->
+    <div class="section">
+      <div class="section-title">Right now on the corridor</div>
+      <div class="cards-row">
+        <div class="mini-card green"><span id="num-clear">—</span><label>Free flow</label></div>
+        <div class="mini-card amber"><span id="num-slow">—</span><label>Slow</label></div>
+        <div class="mini-card red"><span id="num-heavy">—</span><label>Jammed</label></div>
       </div>
     </div>
 
-    <!-- Legend -->
-    <div class="sidebar-section">
-      <div class="section-label">Legend</div>
-      <div class="legend-grid">
-        <div class="legend-item"><span class="badge badge-accident">●</span>Accident</div>
-        <div class="legend-item"><span class="badge badge-congestion">●</span>Congestion</div>
-        <div class="legend-item"><span class="badge badge-slowdown">●</span>Slowdown</div>
-        <div class="legend-item"><span class="badge badge-other">●</span>Light</div>
-      </div>
+    <!-- All routes -->
+    <div class="section routes-section">
+      <div class="section-title">All routes <span id="route-count" class="count-badge">0</span></div>
+      <div id="route-list"></div>
     </div>
 
-    <!-- Incident list -->
-    <div class="sidebar-section list-section">
-      <div class="list-header">
-        <div class="section-label">Incidents</div>
-        <span id="list-count" class="list-badge">0</span>
-      </div>
-      <div id="incident-list"></div>
-      <div id="list-footer"></div>
-    </div>
-
-    <!-- Bottom toolbar -->
     <div id="toolbar">
-      <button id="btn-refresh" class="tool-btn">↻ Refresh</button>
-      <button id="btn-auto"    class="tool-btn active">⏱ Auto ON</button>
-      <button id="btn-locate"  class="tool-btn">📍 Locate</button>
+      <button id="btn-refresh" class="btn btn-primary">↻ Refresh</button>
+      <button id="btn-locate"  class="btn">📍 Locate me</button>
     </div>
 
-    <div id="last-updated"></div>
-    <div id="made-by">Made by <strong>Ruthvika Tammina</strong></div>
+    <div id="footer">
+      <div id="last-updated"></div>
+      <div id="made-by">Made by <strong>Ruthvika Tammina</strong></div>
+    </div>
+
   </aside>
 
+  <div id="toast" class="toast hidden"></div>
+
   <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
-  <!-- Token injected by Python/Jinja2 -->
   <script>window.MAPBOX_TOKEN = "{{ mapboxToken }}";</script>
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=11"></script>
 </body>
 </html>

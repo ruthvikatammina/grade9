@@ -1,349 +1,413 @@
-/*
- * ============================================================
- * HYDERABAD TRAFFIC DASHBOARD — app.js
- * ============================================================
- *
- * HOW THE DATA FLOWS (Python → Browser):
- *   1. Map loads → we call /api/incidents?bbox=…
- *   2. Python (server/main.py) receives the request
- *   3. Python queries Google Maps for each route in the bbox
- *   4. Python's utils.py calculates the congestion level
- *   5. Python returns JSON: { incidents: [...], cached: bool }
- *   6. We draw coloured markers + update the sidebar
- *
- * KEY JAVASCRIPT CONCEPTS USED HERE:
- *   async/await   – wait for server replies without freezing the page
- *   fetch()       – call an API endpoint
- *   DOM methods   – getElementById, createElement, addEventListener
- *   Arrow fns     – (x) => expression
- *   Array methods – .filter(), .forEach(), .slice()
- * ============================================================
- */
+/* CyberRoute — Hyderabad IT Corridor */
 
-// ── Config ────────────────────────────────────────────────
+const MAP_CENTER     = [78.3794, 17.4454];
+const MAP_ZOOM       = 11;
+const CORRIDOR_BBOX  = '78.2,17.2,78.6,17.7';
+const SEV_COLOR      = { clear: '#3fb950', slow: '#d29922', heavy: '#f85149' };
 
-const REFRESH_MS = 30_000; // auto-refresh every 30 seconds
+let map          = null;
+let markersLayer = [];
+let lastData     = [];
+let prevData     = {};
+let dirFilter    = 'all';
+let favourites   = new Set(JSON.parse(localStorage.getItem('cyberroute-favs') || '[]'));
 
-// Coordinates for the "Jump to area" dropdown [lng, lat]
-const ZONES = {
-  hyderabad:  { center: [78.4867, 17.3850], zoom: 12 },
-  hitech:     { center: [78.3794, 17.4454], zoom: 13 },
-  banjara:    { center: [78.4237, 17.4175], zoom: 13 },
-  kukatpally: { center: [78.4202, 17.4479], zoom: 13 },
-  gachibowli: { center: [78.4010, 17.4404], zoom: 13 },
-};
+// ── DOM refs ──────────────────────────────────────────────────────────────────
+const elStatusPill  = document.getElementById('status-pill');
+const elGoBanner    = document.getElementById('go-banner');
+const elNumClear    = document.getElementById('num-clear');
+const elNumSlow     = document.getElementById('num-slow');
+const elNumHeavy    = document.getElementById('num-heavy');
+const elTripSelect  = document.getElementById('trip-select');
+const elTripResult  = document.getElementById('trip-result');
+const elRouteList   = document.getElementById('route-list');
+const elRouteCount  = document.getElementById('route-count');
+const elLastUpdated   = document.getElementById('last-updated');
+const elToast         = document.getElementById('toast');
+const elLeaveByRow    = document.getElementById('leave-by-row');
+const elArriveByInput = document.getElementById('arrive-by-input');
+const elLeaveByResult = document.getElementById('leave-by-result');
+const btnRefresh      = document.getElementById('btn-refresh');
+const btnLocate       = document.getElementById('btn-locate');
 
-// Dot colours for each incident severity (matches CSS badge classes)
-const COLORS = {
-  accident:   '#ef4444',
-  congestion: '#f97316',
-  slowdown:   '#eab308',
-  other:      '#3b82f6',
-};
+// ── Direction filter ──────────────────────────────────────────────────────────
+document.querySelectorAll('.dir-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    dirFilter = btn.dataset.dir;
+    document.querySelectorAll('.dir-btn').forEach(b => b.classList.remove('dir-btn-active'));
+    btn.classList.add('dir-btn-active');
+    render(lastData);
+  });
+});
 
-// CSS class for the status pill based on traffic level
-const LEVEL_PILL = {
-  Light:    'pill-light',
-  Moderate: 'pill-moderate',
-  Heavy:    'pill-heavy',
-  Severe:   'pill-severe',
-};
+const HUBS = ['HITEC City', 'Financial District'];
 
-// ── DOM references ─────────────────────────────────────────
+function applyDirFilter(routes) {
+  if (dirFilter === 'to')
+    return routes.filter(r => HUBS.some(h => r.description.endsWith('→ ' + h)));
+  if (dirFilter === 'from')
+    return routes.filter(r => HUBS.some(h => r.description.startsWith(h + ' →')));
+  return routes;
+}
 
-const statusPillEl  = document.getElementById('status-pill');
-const statCountEl   = document.getElementById('stat-count');
-const statLevelEl   = document.getElementById('stat-level');
-const listEl        = document.getElementById('incident-list');
-const listCountEl   = document.getElementById('list-count');
-const listFooterEl  = document.getElementById('list-footer');
-const lastUpdatedEl = document.getElementById('last-updated');
-const zoneSelectEl  = document.getElementById('zone-select');
-const autoBtnEl     = document.getElementById('btn-auto');
+// ── Fetch — runs regardless of map state ──────────────────────────────────────
+async function fetchWithBbox(bbox) {
+  setStatus('loading');
+  const wakeTimer = setTimeout(() => {
+    elGoBanner.textContent = '⏳ Server waking up — this takes ~30 sec on first visit…';
+    elGoBanner.className   = 'banner banner-loading';
+  }, 6000);
+  try {
+    const ctrl = new AbortController();
+    const tid  = setTimeout(() => ctrl.abort(), 25000);
+    const res  = await fetch(`/api/incidents?bbox=${bbox}`, { signal: ctrl.signal });
+    clearTimeout(tid);
+    clearTimeout(wakeTimer);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
 
-// ── State ──────────────────────────────────────────────────
+    prevData = Object.fromEntries(lastData.map(r => [r.description, r.traffic_mins]));
+    lastData = json.incidents || [];
+    render(lastData);
+    setStatus('ok');
+    elLastUpdated.textContent = 'Updated ' + new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+  } catch (err) {
+    clearTimeout(wakeTimer);
+    setStatus('error');
+    elRouteList.innerHTML = `<div class="empty-state">Could not load traffic data.<br><small style="color:#7d8590">${err.message}</small></div>`;
+    console.error('fetch failed:', err);
+  }
+}
 
-let allIncidents  = [];     // latest array from the API
-let currentFilter = 'all';  // active type filter
-let mapMarkers    = [];     // Mapbox Marker objects on the map
-let autoRefresh   = true;
-let refreshTimer  = null;
+// Boot: fetch immediately with full corridor bbox — no map dependency
+fetchWithBbox(CORRIDOR_BBOX);
 
-// ── Map setup (wrapped so a Mapbox failure can't kill the data fetch) ─────
-
-const token = window.MAPBOX_TOKEN;
-let map = null;
-
-try {
-  if (!token) throw new Error('No token');
-  mapboxgl.accessToken = token;
+// ── Map init (best-effort — data loading works without it) ────────────────────
+function initMap() {
+  if (typeof mapboxgl === 'undefined') {
+    console.warn('Mapbox GL not available');
+    return;
+  }
+  mapboxgl.accessToken = window.MAPBOX_TOKEN || '';
   map = new mapboxgl.Map({
     container: 'map',
     style: 'mapbox://styles/mapbox/dark-v11',
-    center: [78.4867, 17.3850],
-    zoom: 12,
+    center: MAP_CENTER,
+    zoom: MAP_ZOOM,
+    attributionControl: false,
   });
-  map.addControl(new mapboxgl.NavigationControl(), 'bottom-right');
-  map.on('load', () => fetchIncidents()); // refresh once map is ready with real bbox
-} catch (e) {
-  console.warn('Map failed to initialise:', e);
-  // Data fetch will still run below — markers just won't appear
+  map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-right');
+  map.addControl(new mapboxgl.AttributionControl({ compact: true }), 'bottom-right');
+  map.on('moveend', () => {
+    const b    = map.getBounds();
+    const bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]
+      .map(n => n.toFixed(4)).join(',');
+    fetchWithBbox(bbox);
+  });
+  map.on('load', () => { if (lastData.length) lastData.forEach(addMarker); });
 }
 
-// ── Helpers ────────────────────────────────────────────────
-
-// Classify an incident description into one of four types
-function classifyType(text = '') {
-  const t = (text || '').toLowerCase();
-  if (t.includes('accident') || t.includes('crash'))    return 'accident';
-  if (t.includes('congestion') || t.includes('heavy'))  return 'congestion';
-  if (t.includes('slow') || t.includes('slowdown'))     return 'slowdown';
-  return 'other';
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initMap);
+} else {
+  initMap();
 }
 
-// Map incident count to a traffic level label
-function toLevel(count) {
-  if (count > 25) return 'Severe';
-  if (count > 15) return 'Heavy';
-  if (count > 8)  return 'Moderate';
-  return 'Light';
-}
-
-// Get the display text from an incident object
-function label(inc) {
-  return inc.event || inc.description || 'Traffic incident';
-}
-
-// ── Render: markers on the map ─────────────────────────────
-
-function clearMarkers() {
-  mapMarkers.forEach(m => m.remove());
-  mapMarkers = [];
-}
-
-function addMarker(inc) {
-  if (!map) return; // map not available, skip marker
-  const type  = classifyType(label(inc));
-  const color = COLORS[type];
-  const lng   = inc.lng ?? inc.lon;
-
-  // Build a tiny coloured circle element
-  const el = document.createElement('div');
-  el.style.cssText = `
-    width:12px; height:12px; border-radius:50%;
-    background:${color};
-    border:2px solid rgba(255,255,255,0.6);
-    box-shadow: 0 0 12px ${color}88, 0 0 4px ${color};
-    cursor:pointer;
-  `;
-
-  const popup = new mapboxgl.Popup({ offset: 14, closeButton: true })
-    .setHTML(`
-      <div class="popup-type" style="color:${color}">${type.toUpperCase()}</div>
-      <div class="popup-desc">${label(inc)}</div>
-      <div class="popup-coords">${inc.lat.toFixed(4)}, ${lng.toFixed(4)}</div>
-    `);
-
-  const marker = new mapboxgl.Marker(el)
-    .setLngLat([lng, inc.lat])
-    .setPopup(popup)
-    .addTo(map);
-
-  mapMarkers.push(marker);
-}
-
-function renderMarkers() {
+// ── Render ────────────────────────────────────────────────────────────────────
+function render(routes) {
   clearMarkers();
-  allIncidents
-    .filter(inc => currentFilter === 'all' || classifyType(label(inc)) === currentFilter)
-    .forEach(addMarker);
+  const filtered = applyDirFilter(routes);
+  updateSummary(filtered);
+  updateBanner(filtered);
+  buildTripSelect(filtered);
+  buildRouteList(filtered);
+  if (map) routes.forEach(addMarker);
 }
 
-// ── Render: sidebar list ───────────────────────────────────
+function updateSummary(routes) {
+  elNumClear.textContent   = routes.filter(r => normSev(r.severity) === 'clear').length;
+  elNumSlow.textContent    = routes.filter(r => normSev(r.severity) === 'slow').length;
+  elNumHeavy.textContent   = routes.filter(r => normSev(r.severity) === 'heavy').length;
+  elRouteCount.textContent = routes.length;
+  const label = dirFilter === 'to' ? 'Inbound' : dirFilter === 'from' ? 'Outbound' : 'All routes';
+  document.querySelector('.routes-section .section-title').childNodes[0].textContent = label + ' ';
+}
 
-function renderList() {
-  listEl.innerHTML = '';
+function updateBanner(routes) {
+  if (!routes.length) {
+    elGoBanner.className   = 'banner banner-loading';
+    elGoBanner.textContent = 'No routes found in view';
+    return;
+  }
+  const heavy = routes.filter(r => normSev(r.severity) === 'heavy').length;
+  const clear = routes.filter(r => normSev(r.severity) === 'clear').length;
+  if (heavy >= Math.ceil(routes.length / 2)) {
+    elGoBanner.className   = 'banner banner-heavy';
+    elGoBanner.textContent = '🔴 Heavy jams on ' + heavy + ' route' + (heavy > 1 ? 's' : '') + ' — consider waiting';
+  } else if (clear >= Math.ceil(routes.length * 0.7)) {
+    elGoBanner.className   = 'banner banner-clear';
+    elGoBanner.textContent = '🟢 Corridor is moving well — good time to head out';
+  } else {
+    elGoBanner.className   = 'banner banner-slow';
+    elGoBanner.textContent = '🟡 Some slowdowns — add 10–15 min buffer';
+  }
+}
 
-  const filtered = allIncidents.filter(inc =>
-    currentFilter === 'all' || classifyType(label(inc)) === currentFilter
-  );
+function bestRoute(routes) {
+  if (!routes.length) return null;
+  return routes.slice().sort((a, b) => a.traffic_mins - b.traffic_mins)[0];
+}
 
-  listCountEl.textContent = filtered.length;
-
-  if (filtered.length === 0) {
-    listEl.innerHTML = `
-      <div class="empty-state">
-        No incidents found<br>in this area right now.
-      </div>`;
-    listFooterEl.textContent = '';
+function buildRouteList(routes) {
+  elRouteList.innerHTML = '';
+  if (!routes.length) {
+    elRouteList.innerHTML = '<div class="empty-state">No routes found.<br>Try refreshing.</div>';
     return;
   }
 
-  filtered.slice(0, 15).forEach(inc => {
-    const type    = classifyType(label(inc));
-    const color   = COLORS[type];
-    const lng     = inc.lng ?? inc.lon;
+  if (dirFilter === 'to' || dirFilter === 'from') {
+    const best = bestRoute(routes);
+    if (best) {
+      const sev = normSev(best.severity);
+      const statusLabel = best.delay_mins > 0 ? `+${best.delay_mins} min delay` : 'On time';
+      const card = document.createElement('div');
+      card.className = 'best-route-card';
+      card.innerHTML = `
+        <div class="best-route-label">⚡ Best right now</div>
+        <div class="best-route-name">${best.description}</div>
+        <div class="best-route-meta">${best.traffic_mins} min · ${statusLabel}</div>
+      `;
+      card.addEventListener('click', () => {
+        const idx = lastData.indexOf(best);
+        if (idx >= 0) { elTripSelect.value = idx; showTripResult(); }
+        if (map) map.flyTo({ center: [best.lng, best.lat], zoom: 13 });
+      });
+      elRouteList.appendChild(card);
+    }
+  }
 
-    // Show travel time in minutes — much easier to understand than seconds
-    const normalMins  = inc.normal_mins  ?? Math.round((inc.duration_normal  ?? 0) / 60);
-    const trafficMins = inc.traffic_mins ?? Math.round((inc.duration_traffic ?? 0) / 60);
-    const delayMins   = inc.delay_mins   ?? (trafficMins - normalMins);
-    const delayText   = delayMins > 0 ? `+${delayMins} min delay` : 'No delay';
-    const ratio       = inc.delay_ratio ?? 1;
+  const favRoutes   = routes.filter(r => favourites.has(r.description));
+  const otherRoutes = routes.filter(r => !favourites.has(r.description));
 
-    const card = document.createElement('div');
-    card.className = 'incident-card';
-    card.innerHTML = `
-      <div class="incident-card-dot" style="background:${color}; box-shadow:0 0 6px ${color}88;"></div>
-      <div class="incident-card-body">
-        <div class="incident-card-type" style="color:${color}">${label(inc)}</div>
-        <div class="incident-card-route">${inc.description || ''}</div>
-        <div class="incident-card-times">
-          <span class="time-badge normal">${normalMins} min normally</span>
-          <span class="time-badge traffic">${trafficMins} min now</span>
-        </div>
-        <div class="incident-card-delay" style="color:${color}">${delayText} · ${ratio}× slower</div>
+  if (favRoutes.length) {
+    const label = document.createElement('div');
+    label.className = 'fav-section-label';
+    label.textContent = 'FAVOURITES';
+    elRouteList.appendChild(label);
+    favRoutes.forEach(r => elRouteList.appendChild(buildRouteCard(r)));
+    if (otherRoutes.length) {
+      const sep = document.createElement('div');
+      sep.className = 'fav-section-label';
+      sep.textContent = 'ALL ROUTES';
+      elRouteList.appendChild(sep);
+    }
+  }
+
+  otherRoutes.forEach(r => elRouteList.appendChild(buildRouteCard(r)));
+}
+
+function trendBadge(r) {
+  const prev = prevData[r.description];
+  if (prev === undefined) return '';
+  const diff = r.traffic_mins - prev;
+  if (diff >= 2)  return '<span class="trend trend-worse">↑ worse</span>';
+  if (diff <= -2) return '<span class="trend trend-better">↓ better</span>';
+  return '';
+}
+
+function buildRouteCard(r) {
+  const sev   = normSev(r.severity);
+  const isFav = favourites.has(r.description);
+  const div   = document.createElement('div');
+  div.className = `route-card sev-${sev}`;
+  div.innerHTML = `
+    <div class="route-card-body">
+      <div class="route-name">${r.description}</div>
+      <div class="route-sub">
+        ${r.delay_mins > 0 ? 'Normal: ' + r.normal_mins + ' min' : ''}
+        ${trendBadge(r)}
       </div>
-    `;
+    </div>
+    <div class="route-card-time">
+      <div class="route-mins">${r.traffic_mins}</div>
+      <div class="route-mins-label">min</div>
+      ${r.delay_mins > 0 ? `<div class="route-delay">+${r.delay_mins} min</div>` : '<div class="route-ok">On time</div>'}
+    </div>
+    <button class="fav-btn" title="Favourite">${isFav ? '★' : '☆'}</button>
+  `;
+  div.querySelector('.fav-btn').addEventListener('click', e => {
+    e.stopPropagation();
+    if (favourites.has(r.description)) {
+      favourites.delete(r.description);
+    } else {
+      favourites.add(r.description);
+    }
+    localStorage.setItem('cyberroute-favs', JSON.stringify([...favourites]));
+    render(lastData);
+  });
+  div.addEventListener('click', () => {
+    const idx = lastData.indexOf(r);
+    if (idx >= 0) { elTripSelect.value = idx; showTripResult(); }
+    if (map) map.flyTo({ center: [r.lng, r.lat], zoom: 13 });
+  });
+  return div;
+}
 
-    card.addEventListener('click', () =>
-      map.flyTo({ center: [lng, inc.lat], zoom: 15, essential: true })
+function buildTripSelect(routes) {
+  const prev = elTripSelect.value;
+  elTripSelect.innerHTML = '<option value="">Choose your route…</option>';
+  routes.forEach((r, i) => {
+    const idx = lastData.indexOf(r);
+    const opt = document.createElement('option');
+    opt.value = idx >= 0 ? idx : i;
+    opt.textContent = r.description;
+    elTripSelect.appendChild(opt);
+  });
+  if (prev !== '') { elTripSelect.value = prev; showTripResult(); }
+}
+
+function showTripResult() {
+  const idx = elTripSelect.value;
+  if (idx === '') { elTripResult.className = 'trip-result hidden'; elLeaveByRow.classList.add('hidden'); return; }
+  const r = lastData[parseInt(idx, 10)];
+  if (!r) return;
+
+  const sev         = normSev(r.severity);
+  const arriveTime  = arrivingByTime(r.traffic_mins);
+  const advice      = leaveAdvice(sev);
+  const adviceClass = { clear: 'advice-clear', slow: 'advice-slow', heavy: 'advice-heavy' }[sev];
+  const shareMsg    = encodeURIComponent(
+    `CyberRoute: ${r.description} — ${r.traffic_mins} min now` +
+    (r.delay_mins > 0 ? ` (+${r.delay_mins} min delay)` : ' (on time)') +
+    `. ETA ${arriveTime}. ${advice}`
+  );
+
+  // Show leave-by calculator
+  elLeaveByRow.classList.remove('hidden');
+  updateLeaveBy(r);
+
+  elTripResult.className = 'trip-result';
+  elTripResult.innerHTML = `
+    <div class="trip-eta-hero">
+      <div>
+        <div class="trip-eta-mins">${r.traffic_mins}</div>
+        <div class="trip-eta-label">minutes to destination</div>
+      </div>
+      <div class="trip-arrive-time">
+        <div class="arrive-label">Arrive by</div>
+        <div class="arrive-val">${arriveTime}</div>
+      </div>
+    </div>
+    <div class="trip-rows">
+      <div class="trip-row"><span>Normal time</span><strong>${r.normal_mins} min</strong></div>
+      <div class="trip-row"><span>Extra delay</span><strong>${r.delay_mins > 0 ? '+' + r.delay_mins + ' min' : 'None'}</strong></div>
+    </div>
+    <div class="trip-advice ${adviceClass}">${advice}</div>
+    <a class="btn-share" href="https://wa.me/?text=${shareMsg}" target="_blank" rel="noopener">📲 Share on WhatsApp</a>
+  `;
+}
+
+function updateLeaveBy(r) {
+  if (!elArriveByInput.value) { elLeaveByResult.textContent = ''; return; }
+  const [h, m]     = elArriveByInput.value.split(':').map(Number);
+  const arriveMs   = new Date().setHours(h, m, 0, 0);
+  const leaveMs    = arriveMs - r.traffic_mins * 60 * 1000;
+  const leaveTime  = new Date(leaveMs).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+  const minsToGo   = Math.round((leaveMs - Date.now()) / 60000);
+  if (minsToGo < 0) {
+    elLeaveByResult.textContent = `⚠️ You needed to leave ${Math.abs(minsToGo)} min ago`;
+    elLeaveByResult.className   = 'leave-by-result leave-late';
+  } else if (minsToGo <= 10) {
+    elLeaveByResult.textContent = `🚗 Leave now! Depart by ${leaveTime}`;
+    elLeaveByResult.className   = 'leave-by-result leave-now';
+  } else {
+    elLeaveByResult.textContent = `⏰ Leave by ${leaveTime} (in ${minsToGo} min)`;
+    elLeaveByResult.className   = 'leave-by-result leave-ok';
+  }
+}
+
+function leaveAdvice(sev) {
+  if (sev === 'clear') return '✅ Roads are clear — leave now for the best run.';
+  if (sev === 'heavy') return '⏳ Heavy traffic. If flexible, wait 20–30 min.';
+  return '🟡 Manageable slowdown — leave now but add buffer time.';
+}
+
+function arrivingByTime(mins) {
+  const d = new Date(Date.now() + mins * 60 * 1000);
+  return d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+}
+
+// ── Markers ───────────────────────────────────────────────────────────────────
+function addMarker(r) {
+  if (!map) return;
+  const sev = normSev(r.severity);
+  const el  = document.createElement('div');
+  el.className = 'map-dot' + (sev === 'heavy' ? ' pulsing' : '');
+  el.style.background = SEV_COLOR[sev] || '#7d8590';
+
+  const popup = new mapboxgl.Popup({ offset: 14, closeButton: false, maxWidth: '220px' })
+    .setHTML(
+      `<strong>${r.description}</strong><br>${r.traffic_mins} min` +
+      (r.delay_mins > 0 ? ` · <span style="color:#f85149">+${r.delay_mins} min</span>` : ' · <span style="color:#3fb950">On time</span>')
     );
 
-    listEl.appendChild(card);
-  });
-
-  listFooterEl.textContent = filtered.length > 15
-    ? `… and ${filtered.length - 15} more incidents`
-    : '';
+  markersLayer.push(new mapboxgl.Marker(el).setLngLat([r.lng, r.lat]).setPopup(popup).addTo(map));
 }
 
-// ── Render: stats + status pill ────────────────────────────
-
-function renderStats() {
-  const count = allIncidents.length;
-  const level = toLevel(count);
-
-  statCountEl.textContent = count;
-  statLevelEl.textContent = level;
-
-  statusPillEl.textContent = `${level} · ${count} incidents`;
-  statusPillEl.className   = `pill ${LEVEL_PILL[level] || 'pill-light'}`;
+function clearMarkers() {
+  markersLayer.forEach(m => m.remove());
+  markersLayer = [];
 }
 
-// Run everything at once
-function renderAll() {
-  renderStats();
-  renderMarkers();
-  renderList();
-  lastUpdatedEl.textContent = `Updated ${new Date().toLocaleTimeString()}`;
+function normSev(s) {
+  if (s === 'clear' || s === 'light')    return 'clear';
+  if (s === 'heavy' || s === 'moderate') return 'heavy';
+  return 'slow';
 }
 
-// ── Data fetching ──────────────────────────────────────────
-
-/*
- * fetch() is asynchronous — it starts a network request and returns a "promise".
- * "await" pauses this function until the promise resolves (data arrives),
- * without blocking anything else in the browser.
- *
- * The bbox (bounding box) tells our Python backend which part of the map
- * is visible, so it only queries relevant routes.
- */
-async function fetchIncidents() {
-  statusPillEl.textContent = 'Loading…';
-  statusPillEl.className   = 'pill pill-loading';
-
-  // Use map bounds if available, otherwise fall back to full Hyderabad bbox
-  const b    = map ? map.getBounds() : null;
-  const bbox = b
-    ? [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].join(',')
-    : '78.35,17.30,78.62,17.50';
-
-  // Abort the request if it takes more than 20 seconds
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 20000);
-
-  try {
-    const res  = await fetch(`/api/incidents?bbox=${encodeURIComponent(bbox)}`, { signal: controller.signal });
-    clearTimeout(timeout);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-    const data = await res.json();
-    allIncidents = data.incidents || [];
-
-    if (allIncidents.length === 0) {
-      statusPillEl.textContent = 'No routes in view';
-      statusPillEl.className   = 'pill pill-loading';
-    }
-
-    renderAll();
-  } catch (err) {
-    clearTimeout(timeout);
-    console.error(err);
-    const msg = err.name === 'AbortError' ? '⚠ Timeout — try refresh' : '⚠ Error loading';
-    statusPillEl.textContent = msg;
-    statusPillEl.className   = 'pill pill-error';
-  }
+// ── Status / Toast ────────────────────────────────────────────────────────────
+function setStatus(state) {
+  const labels  = { loading: '…', ok: 'Live', error: 'Error' };
+  const classes = { loading: 'pill pill-loading', ok: 'pill pill-ok', error: 'pill pill-error' };
+  elStatusPill.textContent = labels[state]  || '…';
+  elStatusPill.className   = classes[state] || 'pill pill-loading';
 }
 
-// ── Auto-refresh ───────────────────────────────────────────
-
-function startAuto() {
-  stopAuto();
-  refreshTimer = setInterval(fetchIncidents, REFRESH_MS);
+function showToast(msg, ms = 3500) {
+  elToast.textContent = msg;
+  elToast.className   = 'toast';
+  clearTimeout(elToast._t);
+  elToast._t = setTimeout(() => { elToast.className = 'toast hidden'; }, ms);
 }
 
-function stopAuto() {
-  if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
-}
-
-// ── Event listeners ────────────────────────────────────────
-
-document.getElementById('btn-refresh').addEventListener('click', fetchIncidents);
-
-autoBtnEl.addEventListener('click', () => {
-  autoRefresh = !autoRefresh;
-  if (autoRefresh) {
-    autoBtnEl.textContent = '⏱ Auto ON';
-    autoBtnEl.classList.add('active');
-    startAuto();
-  } else {
-    autoBtnEl.textContent = '⏱ Auto OFF';
-    autoBtnEl.classList.remove('active');
-    stopAuto();
-  }
+// ── Buttons ───────────────────────────────────────────────────────────────────
+btnRefresh.addEventListener('click', () => {
+  btnRefresh.disabled = true;
+  const bbox = map
+    ? [map.getBounds().getWest(), map.getBounds().getSouth(),
+       map.getBounds().getEast(), map.getBounds().getNorth()].map(n => n.toFixed(4)).join(',')
+    : CORRIDOR_BBOX;
+  fetchWithBbox(bbox).finally(() => { btnRefresh.disabled = false; });
 });
 
-document.getElementById('btn-locate').addEventListener('click', () => {
+btnLocate.addEventListener('click', () => {
+  if (!navigator.geolocation) { showToast('Geolocation not supported'); return; }
   navigator.geolocation.getCurrentPosition(
-    pos => map && map.flyTo({ center: [pos.coords.longitude, pos.coords.latitude], zoom: 14 }),
-    ()  => { statusPillEl.textContent = '⚠ Location unavailable'; }
+    pos => {
+      if (map) map.flyTo({ center: [pos.coords.longitude, pos.coords.latitude], zoom: 13 });
+      else showToast('Map not available');
+    },
+    () => showToast('Location access denied'),
+    { timeout: 8000 }
   );
 });
 
-zoneSelectEl.addEventListener('change', () => {
-  const zone = ZONES[zoneSelectEl.value];
-  if (!zone) return;
-  if (map) map.flyTo({ center: zone.center, zoom: zone.zoom });
-  zoneSelectEl.value = '';
-  fetchIncidents();
+elTripSelect.addEventListener('change', showTripResult);
+
+elArriveByInput.addEventListener('input', () => {
+  const idx = elTripSelect.value;
+  if (idx === '') return;
+  const r = lastData[parseInt(idx, 10)];
+  if (r) updateLeaveBy(r);
 });
 
-document.querySelectorAll('.filter-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    currentFilter = btn.dataset.type;
-    renderMarkers();
-    renderList();
-  });
-});
-
-// Re-fetch when the user pans or zooms to a new area
-if (map) map.on('moveend', () => { if (autoRefresh) fetchIncidents(); });
-
-// ── Boot ───────────────────────────────────────────────────
-// Fetch data immediately — does NOT wait for the map to load.
-// This ensures data always loads even if Mapbox CDN is slow.
-fetchIncidents();
-startAuto();
