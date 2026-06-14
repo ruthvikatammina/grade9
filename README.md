@@ -1,496 +1,234 @@
-# Hyderabad Traffic Dashboard
+# CyberRoute — Hyderabad IT Corridor Traffic
 
-A real-time traffic monitoring web application for Hyderabad, India. Features live incident tracking, traffic level indicators, and meaningful visualizations using Mapbox and Google Maps APIs.
+Live traffic dashboard for the Cyberabad commute corridor. Shows real-time travel times across 20 routes connecting HITEC City, Financial District (Nanakramguda), and surrounding areas — built with FastAPI, Mapbox, and Google Maps Routes API.
 
-## ✨ Features
-
-- **Live Traffic Map**: Interactive Mapbox visualization of Hyderabad
-- **Real-time Traffic Data**: Automatic updates every 30 seconds via Google Maps Directions API
-- **Preset Areas**: Quick jump to HITEC City, Banjara Hills, Kukatpally, Gachibowli
-- **Incident Filters**: Filter by accident, congestion, slowdown, or view all
-- **Traffic Statistics**: Total incidents and traffic level display
-- **Location Detection**: Find traffic near your current location
-- **Auto-refresh Toggle**: Enable/disable 30-second automatic updates
-- **Responsive UI**: Dashboard with incident list and statistics
-
-## 🚀 Quick Start
-
-### 1. Get API Keys
-
-#### Mapbox Access Token
-1. Visit [mapbox.com](https://www.mapbox.com)
-2. Sign up for a free account
-3. Go to Account → Tokens
-4. Create a new token (make sure it has appropriate scopes)
-5. Copy the token
-
-#### Google Maps API Key
-1. Visit [Google Cloud Console](https://console.cloud.google.com)
-2. Create a new project (or use existing)
-3. Enable the **Maps JavaScript API** and **Directions API**
-4. Go to Credentials → Create API Key
-5. Copy the key
-6. (Optional) Restrict it to your domain for security
-
-### 2. Setup Environment
-
-Create a `.env` file in the `server/` directory:
-
-```bash
-cat > server/.env << EOF
-MAPBOX_ACCESS_TOKEN=your_mapbox_token_here
-GOOGLE_MAPS_API_KEY=your_google_maps_api_key_here
-PORT=3000
-EOF
-```
-
-Replace the tokens with your actual keys.
-
-### 3. Install Dependencies
-
-**Python (Recommended):**
-```bash
-python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-```
-
-### 4. Run the Server
-
-**Python (FastAPI):**
-```bash
-uvicorn server.main:app --reload --host 0.0.0.0 --port 3000
-```
-
-### 5. Open in Browser
-
-Navigate to: **http://localhost:3000**
-
-## 📊 How It Works
-
-**Architecture Overview (Learning Guide for Grade 9)**
-
-This project demonstrates real-world web development concepts:
-
-### 1. **Frontend** (HTML/CSS/JavaScript in `templates/index.html`)
-   - User interacts with the dashboard
-   - Fetches traffic data from our backend API
-   - Uses Mapbox to display incidents on an interactive map
-   - Handles all UI interactions (filtering, zone selection, auto-refresh)
-
-### 2. **Backend API** (Python FastAPI in `server/main.py`)
-   - Receives requests from frontend with map bounds
-   - Queries Google Maps Directions API for traffic conditions
-   - Processes data to calculate congestion levels
-   - Returns incidents as JSON for frontend to display
-
-### 3. **Data Processing** (Python modules)
-   - `config.py`: Centralized configuration (routes, API keys, thresholds)
-   - `utils.py`: Pure functions for calculating congestion and filtering routes
-   - `cache.py`: Simple caching to reduce API calls (performance optimization)
-
-### 4. **Data Flow**
-   ```
-   User opens map
-        ↓
-   Frontend fetches current map bounds
-        ↓
-   Backend checks cache first (TTL 30 seconds)
-        ↓
-   If not cached: Query Google Maps API for 6 routes in the bounds
-        ↓
-   Process API response: Calculate congestion ratios
-        ↓
-   Cache results + return JSON to frontend
-        ↓
-   Frontend displays markers and statistics
-   ```
-
-### 5. **Key Python Concepts Demonstrated**
-
-| Concept | Where Used | Learning Value |
-|---------|-----------|-----------------|
-| **Functions** | `utils.calculate_congestion()`, `utils.is_route_in_bbox()` | Breaking code into reusable pieces |
-| **Type Hints** | Function parameters and returns | Making code self-documenting |
-| **Error Handling** | try-except blocks in API calls | Gracefully handling failures |
-| **Logging** | `logger.info()`, `logger.warning()` | Debugging production issues |
-| **Data Structures** | Dictionaries, lists for incident data | Organizing complex data |
-| **Configuration Management** | `config.py` module | Separating config from code |
-| **Caching** | `cache.py` with TTL | Optimization and performance |
-| **Unit Testing** | `tests/test_main.py` with pytest | Ensuring code reliability |
+**Live:** https://traffic-update.onrender.com
 
 ---
 
-## 🧪 Testing Your Code
+## What It Does
 
-Before deploying, always test locally!
-
-### Run Unit Tests (Testing individual functions)
-```bash
-# Install dependencies if not already done
-pip install -r requirements.txt
-
-# Run all tests
-pytest tests/test_main.py -v
-
-# Expected output:
-# test_calculate_congestion.py::TestCalculateCongestion::test_heavy_congestion PASSED
-# test_calculate_congestion.py::TestCalculateCongestion::test_zero_duration PASSED
-# ... (more tests) ...
-```
-
-### Run the Server Locally
-```bash
-# Activate virtual environment
-source .venv/bin/activate
-
-# Start server
-uvicorn server.main:app --reload --host 0.0.0.0 --port 3000
-
-# Server logs (learning: reading logs to understand what's happening):
-# INFO:     Uvicorn running on http://0.0.0.0:3000
-# INFO:     Starting Hyderabad Traffic Dashboard
-# INFO:     MAPBOX_ACCESS_TOKEN is set: True
-# INFO:     GOOGLE_MAPS_API_KEY is set: True
-```
-
-### Test in Browser
-1. Open http://localhost:3000
-2. Click "Refresh" button → incidents should load
-3. Pan/zoom the map → new areas should fetch incidents
-4. Click an incident → should pan to that location
-5. Toggle "Auto: ON/OFF" → auto-refresh should start/stop
-6. Select an area → map should jump to that zone
-7. Filter by incident type → markers should update
+- **Live route cards** — 20 IT-corridor routes with current travel time, delay, and congestion severity
+- **Mapbox traffic layer** — colour-coded roads (green / amber / red) directly on the map
+- **Direction filter** — view All / Inbound (→ HITEC City or Financial District) / Outbound
+- **Best route hero** — highlights the fastest option when a direction is selected
+- **Trip planner** — select any route to see ETA, delay, and leave-by time calculator
+- **Favourites** — star routes; they float to the top on every refresh (saved in localStorage)
+- **Trend badges** — ↑ worse / ↓ better compared to the previous refresh
+- **Provider fallback** — Google Maps Routes API → TomTom Routing API per route, so data still loads if one provider has issues
+- **5-minute cache** — results are cached server-side; manual refresh bypasses the cache
 
 ---
 
-## 📁 Project Structure (Code Organization)
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Backend | Python 3.11, FastAPI, uvicorn |
+| HTTP client | httpx (async) |
+| Templating | Jinja2 |
+| Map | Mapbox GL JS v2.15 |
+| Traffic data | Google Maps Routes API (primary), TomTom Routing API (fallback) |
+| Hosting | Render.com (free tier) |
+
+---
+
+## Project Structure
 
 ```
 grade9/
 ├── server/
-│   ├── main.py           # FastAPI app and route handlers
-│   ├── config.py         # Constants and environment variables
-│   ├── utils.py          # Pure utility functions
-│   ├── cache.py          # Simple caching with TTL
-│   ├── __init__.py       # Makes 'server' a Python package
-│   └── .env              # (Not committed) API keys
-│
-├── templates/
-│   └── index.html        # Jinja2 template with Mapbox + JavaScript
-│
-├── public/
-│   ├── styles.css        # CSS styling
-│   └── app.js            # (Legacy) static JavaScript
-│
-├── tests/
-│   ├── test_main.py      # Unit tests for functions
+│   ├── main.py        # FastAPI app — endpoints, fallback query logic, cache
+│   ├── config.py      # 20 routes, API keys, congestion thresholds, TTL
+│   ├── utils.py       # calculate_congestion(), is_route_in_bbox()
+│   ├── cache.py       # In-memory TTL cache
 │   └── __init__.py
 │
-├── requirements.txt      # Python dependencies
-├── README.md             # This file
-└── render.yaml           # Deployment config for Render.com
+├── templates/
+│   └── index.html     # Single-page HTML (Jinja2 injects Mapbox token)
+│
+├── public/
+│   ├── app.js         # All frontend logic — fetch, render, map, filters
+│   └── styles.css     # Dark GitHub-style theme
+│
+├── tests/
+│   └── test_main.py   # Unit tests for utils functions
+│
+├── requirements.txt
+├── render.yaml        # Render.com deploy config
+└── README.md
 ```
-
-### What Each File Does
-
-| File | Purpose | Learning Focus |
-|------|---------|-----------------|
-| `main.py` | Defines API endpoints, handles HTTP requests | REST APIs, async/await |
-| `config.py` | Centralized constants (routes, API URLs, thresholds) | Configuration management |
-| `utils.py` | Pure functions for calculations and filtering | Functional programming, pure functions |
-| `cache.py` | Simple key-value cache with TTL | Data structures, optimization |
-| `test_main.py` | Tests for `utils.py` functions | Unit testing with pytest |
-| `index.html` | User interface, fetches from API | Frontend-backend communication |
 
 ---
 
-## 🐛 Common Issues & Solutions
+## How It Works
 
-### "GOOGLE_MAPS_API_KEY not set"
+### Data flow
+
 ```
-Solution: Add to server/.env file (don't commit it!)
-GOOGLE_MAPS_API_KEY=your_actual_key_here
+Page load
+  └─► fetchWithBbox(CORRIDOR_BBOX)          ← runs immediately, no map needed
+        └─► GET /api/incidents?bbox=…
+              ├─ cache HIT → return cached JSON
+              └─ cache MISS
+                   ├─ filter 20 routes to those inside bbox
+                   ├─ asyncio.gather() — query all visible routes in parallel
+                   │    └─ Semaphore(5) — max 5 concurrent API calls
+                   │         ├─ query_google()  → Google Maps Routes API
+                   │         └─ if Google fails → query_tomtom()
+                   ├─ calculate_congestion(traffic_secs, normal_secs)
+                   ├─ cache result (5 min TTL, only if non-empty)
+                   └─ return JSON → frontend renders cards + map markers
 ```
 
-### "No incidents loading"
-1. Check browser console (F12 → Console tab) for errors
-2. Check server logs for API errors
-3. Verify API keys are still valid (quota remaining?)
-4. Try zooming into Hyderabad: [78.4867, 17.3850]
+### Congestion classification
 
-### "Port 3000 already in use"
+| Severity | Condition |
+|----------|-----------|
+| Heavy | traffic time ≥ 1.5× normal |
+| Slow | traffic time ≥ 1.2× normal |
+| Clear | traffic time < 1.2× normal |
+
+### Routes covered
+
+20 routes across the Cyberabad IT corridor:
+
+- **Inbound to HITEC City** — from Secunderabad, Kukatpally, Ameerpet, Nampally, LB Nagar, Dilsukhnagar, Kompally, Airport
+- **Inbound to Financial District** — from Secunderabad, Ameerpet, Nampally, LB Nagar, Airport
+- **Between hubs** — HITEC City ↔ Financial District
+- **Outbound** — HITEC City / Financial District → Nampally, Airport
+- **Other** — Nampally → Banjara Hills, Gachibowli → HITEC City
+
+---
+
+## Local Setup
+
+### 1. Get API keys
+
+**Mapbox** (for the map)
+1. Sign up at mapbox.com
+2. Account → Tokens → copy your default public token
+
+**Google Maps Routes API** (primary traffic data)
+1. Google Cloud Console → Enable **Routes API**
+2. APIs & Services → Credentials → Create API Key
+3. Billing must be enabled (Routes API requires it even on free tier)
+
+**TomTom** (optional fallback)
+1. Sign up at developer.tomtom.com
+2. Dashboard → Create API Key (free tier: 2,500 req/day)
+
+### 2. Create `.env`
+
 ```bash
-# Use a different port
+MAPBOX_ACCESS_TOKEN=pk.eyJ1...
+GOOGLE_MAPS_API_KEY=AIza...
+TOMTOM_API_KEY=...          # optional
+PORT=3000
+```
+
+### 3. Install and run
+
+```bash
+python -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+uvicorn server.main:app --reload --port 3000
+```
+
+Open **http://localhost:3000**
+
+### 4. Verify APIs are working
+
+Visit **http://localhost:3000/api/debug** — returns status for both Google and TomTom with sample travel times.
+
+---
+
+## API Reference
+
+### `GET /`
+Serves the main HTML page (Mapbox token injected via Jinja2).
+
+### `GET /health`
+Returns `{"status": "ok"}` — used by Render for health checks.
+
+### `GET /api/incidents?bbox=min_lng,min_lat,max_lng,max_lat`
+Returns live traffic data for all routes within the bounding box.
+
+**Response:**
+```json
+{
+  "incidents": [
+    {
+      "description": "Nampally → HITEC City",
+      "event": "Heavy congestion",
+      "severity": "heavy",
+      "lat": 17.4152,
+      "lng": 78.4330,
+      "normal_mins": 28.5,
+      "traffic_mins": 44.2,
+      "delay_mins": 15.7,
+      "delay_ratio": 1.55
+    }
+  ],
+  "cached": false
+}
+```
+
+### `GET /api/debug`
+Tests both Google and TomTom APIs with one hardcoded route. Useful for diagnosing key issues.
+
+---
+
+## Deployment (Render.com)
+
+The `render.yaml` file configures the service automatically.
+
+**Environment variables to set in Render dashboard:**
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `MAPBOX_ACCESS_TOKEN` | Yes | Mapbox public token |
+| `GOOGLE_MAPS_API_KEY` | Yes | Google Routes API key |
+| `TOMTOM_API_KEY` | No | Fallback if Google fails |
+
+Render sets `PORT` automatically — do not override it.
+
+**Deploy branch:** `claude/brave-pasteur-HXaDc`
+
+---
+
+## Troubleshooting
+
+### No route cards loading
+1. Visit `/api/debug` — check if Google returns `"status": "OK"`
+2. If `PERMISSION_DENIED` — Routes API not enabled or billing not set up in Google Cloud
+3. If `quota_exhausted` errors — add `TOMTOM_API_KEY` as a fallback
+4. Hard refresh (`Ctrl+Shift+R`) to clear cached JS/CSS
+
+### Map not showing
+- Check that `MAPBOX_ACCESS_TOKEN` is set correctly in environment variables
+- The Mapbox traffic layer requires a valid token — the sidebar still works without it
+
+### Server sleeping (Render free tier)
+- Render free tier sleeps after 15 min of inactivity
+- First load after sleep takes ~30 seconds — a "Server waking up…" message appears after 6 seconds
+
+### Port already in use
+```bash
 uvicorn server.main:app --reload --port 8000
-# Then visit http://localhost:8000
 ```
 
-### Tests Failing?
+---
+
+## Running Tests
+
 ```bash
-# Run with verbose output to see what failed
 pytest tests/test_main.py -v
-
-# Run specific test
-pytest tests/test_main.py::TestCalculateCongestion::test_heavy_congestion -v
 ```
 
 ---
 
-## 📚 Learning Resources
+## Made by
 
-### Python Concepts Used
-- **Functions & Modules**: [Real Python - Functions](https://realpython.com/defining-your-own-python-function/)
-- **Async/Await**: [Real Python - Async IO](https://realpython.com/async-io-python/)
-- **Type Hints**: [Real Python - Type Hints](https://realpython.com/python-type-checking/)
-- **Logging**: [Python Docs - Logging](https://docs.python.org/3/library/logging.html)
-- **Testing with pytest**: [Pytest.org](https://docs.pytest.org/)
-
-### Web Development
-- **REST APIs**: [What is REST? - MDN](https://developer.mozilla.org/en-US/docs/Glossary/REST)
-- **FastAPI**: [FastAPI Documentation](https://fastapi.tiangolo.com/)
-- **HTTP Status Codes**: [MDN - HTTP Status](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status)
-
-### APIs Used
-- **Google Maps Directions API**: [Official Docs](https://developers.google.com/maps/documentation/directions)
-- **Mapbox GL JS**: [Official Docs](https://docs.mapbox.com/mapbox-gl-js/)
-
----
-
-## 🔄 Data Flow Diagram
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         USER BROWSER                             │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │ templates/index.html (Frontend)                           │  │
-│  │ ┌────────────────────────────────────────────────────┐   │  │
-│  │ │ 1. User opens map or pans/zooms                    │   │  │
-│  │ │ 2. Get current bounds: [lng_min, lat_min, ...]    │   │  │
-│  │ │ 3. fetch(/api/incidents?bbox=...)                 │   │  │
-│  │ └────────────────────────────────────────────────────┘   │  │
-│  └─────────────────────┬──────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
-                          │
-                          │ HTTP GET /api/incidents
-                          ↓
-┌─────────────────────────────────────────────────────────────────┐
-│                        PYTHON BACKEND                            │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │ server/main.py: fetch_incidents()                        │  │
-│  │ ┌────────────────────────────────────────────────────┐   │  │
-│  │ │ 1. Validate bbox parameter                        │   │  │
-│  │ │ 2. Check cache.get(bbox_hash)  ← cache.py       │   │  │
-│  │ │    If HIT: Return cached incidents                │   │  │
-│  │ │    If MISS: Continue to step 3                    │   │  │
-│  │ │ 3. For each route in config.HYDERABAD_ROUTES:    │   │  │
-│  │ │    - Check if route overlaps bbox (utils.py)     │   │  │
-│  │ │    - Query Google Maps API with route coords     │   │  │
-│  │ │ 4. Process response:                              │   │  │
-│  │ │    - Extract duration vs duration_in_traffic     │   │  │
-│  │ │    - Calculate congestion (utils.calculate_...)  │   │  │
-│  │ │    - Format as incident object                   │   │  │
-│  │ │ 5. Cache result (cache.set())                     │   │  │
-│  │ │ 6. Return JSON response                           │   │  │
-│  │ └────────────────────────────────────────────────────┘   │  │
-│  └─────────────────────┬──────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
-                          │
-                          │ JSON Response
-                          ↓
-┌─────────────────────────────────────────────────────────────────┐
-│                      BACK TO BROWSER                             │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │ Frontend processes JSON:                                 │  │
-│  │ 1. Parse incidents array                                │  │
-│  │ 2. Clear old markers                                    │  │
-│  │ 3. For each incident:                                  │  │
-│  │    - Create Mapbox marker with incident icon/color    │  │
-│  │    - Add to map                                        │  │
-│  │ 4. Update statistics (count, traffic level)            │  │
-│  │ 5. Build incident list HTML                           │  │
-│  │ 6. Render to user!                                    │  │
-│  └──────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 🚀 Next Steps for Learning
-
-### Try These Modifications:
-1. **Add more routes** - Edit `config.py` HYDERABAD_ROUTES
-2. **Change congestion thresholds** - Modify `config.CONGESTION_THRESHOLDS`
-3. **Write a new test** - Add a test case to `tests/test_main.py`
-4. **Add logging statements** - Use `logger.info()` to track what's happening
-5. **Implement new endpoints** - Add more API routes to `server/main.py`
-
-### Understanding the Code:
-- Read `server/utils.py` → Pure functions with docstrings
-- Read `server/cache.py` → Simple data structures in action
-- Read `tests/test_main.py` → How to verify your code works
-- Read JavaScript comments in `templates/index.html` → Frontend-backend communication
-
----
-
-## 📝 How It Works
-
-1. **Frontend** (Mapbox GL JS):
-   - Displays an interactive map centered on Hyderabad
-   - Shows traffic conditions as markers on major routes
-   - Auto-refreshes every 30 seconds
-   - Supports filtering and area selection
-
-2. **Backend** (Python FastAPI):
-   - Queries Google Maps Directions API for traffic conditions
-   - Analyzes traffic delays across major Hyderabad routes
-   - Returns traffic conditions as incident-like data
-   - Handles viewport bounding box queries
-
-3. **Data Flow**:
-   ```
-   Frontend → Backend → Google Maps Directions API
-                    ↓
-              Traffic Conditions
-                    ↓
-   Frontend Renders Markers & Statistics
-   ```
-
-## 🎨 UI Components
-
-| Component | Purpose |
-|-----------|---------|
-| **Header** | Application title and current traffic status |
-| **Controls** | Refresh button and auto-refresh toggle |
-| **Statistics** | Incident count and traffic level |
-| **Legend** | Color-coded incident type reference |
-| **Incidents List** | Detailed list of incidents in view |
-| **Map** | Interactive Mapbox display |
-
-## 🔧 Configuration
-
-### Adjust Auto-refresh Interval
-
-Edit `public/app.js` line ~140:
-```javascript
-autoRefreshInterval = setInterval(loadIncidents, 30000); // Change 30000 to desired milliseconds
-```
-
-### Change Map Center/Zoom
-
-Edit `public/app.js` line ~19:
-```javascript
-const map = new mapboxgl.Map({
-  center: [78.4867, 17.3850],  // [longitude, latitude]
-  zoom: 12                        // Change zoom level (1-22)
-});
-```
-
-## 📦 Tech Stack
-
-- **Frontend**: HTML5, CSS3, JavaScript (ES6+), Mapbox GL JS
-- **Backend**: Python (FastAPI) or Node.js (Express)
-- **APIs**: 
-  - Mapbox (map tiles and styling)
-  - HERE Traffic (incident data)
-- **Package Managers**: npm, pip
-
-## 📝 Requirements
-
-### Python
-- Python 3.7+
-- FastAPI >= 0.95.0
-- uvicorn >= 0.22.0
-- httpx >= 0.24.0
-- python-dotenv >= 1.0.0
-
-### Node.js
-- Node.js 14+
-- Express 4.18.2
-- cors 2.8.5
-- dotenv 16.0.0
-- node-fetch 2.6.7
-
-## 🐛 Troubleshooting
-
-### "MAPBOX_ACCESS_TOKEN not set"
-- Check `server/.env` file exists
-- Verify `MAPBOX_ACCESS_TOKEN` is set correctly
-- Restart server after adding token
-
-### "HERE_API_KEY not set"
-- Add `HERE_API_KEY` to `server/.env`
-- Restart server
-- Try clicking "Refresh Incidents" button
-
-### No incidents showing
-- Increase map zoom (incidents may only show in specific regions)
-- Check browser console (F12) for errors
-- Verify API keys are valid and have quota remaining
-
-### CORS errors
-- Ensure backend is running on the same origin
-- Check that CORS middleware is enabled (it is by default)
-
-## 🚀 Deployment
-
-### To GitHub
-```bash
-git add .
-git commit -m "Add traffic dashboard"
-git push origin main
-```
-
-### To Heroku (Python)
-```bash
-heroku create your-app-name
-heroku config:set MAPBOX_ACCESS_TOKEN=your_token HERE_API_KEY=your_key
-git push heroku main
-```
-
-### To Vercel/Netlify (Frontend only)
-```bash
-npm run build  # If needed
-# Deploy the public/ folder as static site
-```
-
-### To Render (recommended)
-
-You can deploy this repo to Render as a Python Web Service. I added a `render.yaml` manifest to help configure the service, but you still need to set secrets in the Render dashboard.
-
-1. Push your repository to GitHub if you haven't already.
-2. In Render, create a new "Web Service" and connect your GitHub repo (or import using `render.yaml`).
-3. Use these build/start settings (the `render.yaml` already sets these):
-
-```bash
-Build command: pip install -r requirements.txt
-Start command: uvicorn server.main:app --host 0.0.0.0 --port $PORT
-```
-
-4. Under Environment → Environment Variables, add:
-
-- `MAPBOX_ACCESS_TOKEN` = your_mapbox_token
-- `HERE_API_KEY` = your_here_api_key
-
-Render exposes a `PORT` variable automatically; do not override it.
-
-Notes:
-- Don't commit your API keys into the repo; set them as Render environment variables.
-- If your repo currently contains the `.venv/` folder tracked by git, push may fail due to large files. I can help remove `.venv/` from the repo history if you want — that will rewrite history and require a force-push.
-
-
-## 📄 License
-
-MIT
-
-## 🤝 Contributing
-
-Contributions welcome! Feel free to submit PRs for improvements.
-
-## 📞 Support
-
-For issues with:
-- **Mapbox**: Visit [docs.mapbox.com](https://docs.mapbox.com)
-- **HERE**: Visit [developer.here.com/documentation](https://developer.here.com/documentation)
-- **FastAPI**: Visit [fastapi.tiangolo.com](https://fastapi.tiangolo.com)
+**Ruthvika Tammina**
