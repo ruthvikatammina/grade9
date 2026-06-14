@@ -88,16 +88,25 @@ function initMap() {
     console.warn('Mapbox GL not available');
     return;
   }
-  mapboxgl.accessToken = window.MAPBOX_TOKEN || '';
+  const token = window.MAPBOX_TOKEN;
+  if (!token || token === 'None' || token === '') {
+    console.warn('Mapbox token missing');
+    return;
+  }
+  mapboxgl.accessToken = token;
   map = new mapboxgl.Map({
     container: 'map',
     style: 'mapbox://styles/mapbox/dark-v11',
     center: MAP_CENTER,
     zoom: MAP_ZOOM,
     attributionControl: false,
+    // Forces Mapbox to measure the container after CSS is applied
+    trackResize: true,
   });
   map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-right');
   map.addControl(new mapboxgl.AttributionControl({ compact: true }), 'bottom-right');
+  // Resize on any window resize (orientation change on mobile)
+  window.addEventListener('resize', () => map.resize());
   map.on('moveend', () => {
     const b    = map.getBounds();
     const bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]
@@ -105,7 +114,9 @@ function initMap() {
     fetchWithBbox(bbox);
   });
   map.on('load', () => {
-    map.resize(); // ensure canvas fills container correctly on mobile
+    // Double-tap resize: once immediately, once after layout settles
+    map.resize();
+    setTimeout(() => map.resize(), 200);
     // Mapbox traffic layer — shows live road colours even when API data is unavailable
     map.addSource('mapbox-traffic', {
       type: 'vector',
