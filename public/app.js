@@ -104,7 +104,32 @@ function initMap() {
       .map(n => n.toFixed(4)).join(',');
     fetchWithBbox(bbox);
   });
-  map.on('load', () => { if (lastData.length) lastData.forEach(addMarker); });
+  map.on('load', () => {
+    // Mapbox traffic layer — shows live road colours even when API data is unavailable
+    map.addSource('mapbox-traffic', {
+      type: 'vector',
+      url: 'mapbox://mapbox.mapbox-traffic-v1',
+    });
+    map.addLayer({
+      id: 'traffic-flow',
+      type: 'line',
+      source: 'mapbox-traffic',
+      'source-layer': 'traffic',
+      paint: {
+        'line-width': 2.5,
+        'line-color': [
+          'match', ['get', 'congestion'],
+          'low',    '#3fb950',
+          'moderate','#d29922',
+          'heavy',  '#f85149',
+          'severe', '#b91c1c',
+          '#7d8590',
+        ],
+        'line-opacity': 0.8,
+      },
+    });
+    if (lastData.length) lastData.forEach(addMarker);
+  });
 }
 
 if (document.readyState === 'loading') {
