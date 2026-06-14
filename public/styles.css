@@ -475,29 +475,30 @@ body, html {
   color: #7d8590 !important;
 }
 
-/* ── Mobile — map on top, sidebar below ─────────────────────────────────── */
+/* ── Mobile — map fixed on top, sidebar fixed below ──────────────────────── */
 @media (max-width: 640px) {
-  body, html { overflow: auto; }
+  body, html { overflow: hidden; }
 
   #map {
-    position: relative;
-    left: 0;
-    height: 38vh;
-    min-height: 200px;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: auto;
+    height: 42vh;
+    width: 100%;
   }
 
   #sidebar {
-    position: relative;
-    top: auto; left: auto; bottom: auto;
+    position: fixed;
+    top: 42vh; left: 0; right: 0; bottom: 0;
     width: 100%;
-    height: auto;
-    overflow: visible;
+    height: 58vh;
+    overflow-y: auto;
     border-right: none;
-    border-top: 1px solid #21262d;
+    border-top: 1px solid #30363d;
+    border-radius: 16px 16px 0 0;
   }
 
   .routes-section { flex: none; }
-  #route-list { max-height: 40vh; overflow-y: auto; }
+  #route-list { max-height: 30vh; overflow-y: auto; }
 
   .toast { bottom: 12px; font-size: 12px; }
 }

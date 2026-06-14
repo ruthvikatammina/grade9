@@ -105,6 +105,7 @@ function initMap() {
     fetchWithBbox(bbox);
   });
   map.on('load', () => {
+    map.resize(); // ensure canvas fills container correctly on mobile
     // Mapbox traffic layer — shows live road colours even when API data is unavailable
     map.addSource('mapbox-traffic', {
       type: 'vector',
